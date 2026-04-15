@@ -58,10 +58,10 @@ function showToast(message, type = 'success') {
 
 // Modal management
 function openModal(id) {
-    document.getElementById(id).classList.add('active');
+    document.getElementById(id).classList.add('open');
 }
 function closeModal(id) {
-    document.getElementById(id).classList.remove('active');
+    document.getElementById(id).classList.remove('open');
 }
 function enableBtn(btnId, enabled, loadingText = 'Memproses...') {
     const btn = document.querySelector(`#${btnId} button[type=submit]`);
