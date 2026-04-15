@@ -1,5 +1,10 @@
 <?php
 require_once __DIR__ . '/config/app.php';
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header('Location: index.php');
+    exit;
+}
 if (empty($_SESSION['admin_logged_in'])) {
     header('Location: index.php');
     exit;

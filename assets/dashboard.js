@@ -247,5 +247,7 @@ async function deleteBot(id) {
 }
 
 function logout() {
-    window.location.href = '?logout=1';
+    if (confirm('Yakin ingin logout?')) {
+        window.location.href = 'dashboard.php?logout=1';
+    }
 }

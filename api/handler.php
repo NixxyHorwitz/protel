@@ -7,6 +7,28 @@ require_once __DIR__ . '/../config/database.php';
 
 header('Content-Type: application/json');
 
+// Handle logout via GET
+if (isset($_GET['logout'])) {
+    session_destroy();
+    header('Location: ../index.php');
+    exit;
+}
+
+// Login action is public
+$action = $_POST['action'] ?? $_GET['action'] ?? '';
+
+if ($action === 'login') {
+    $user = $_POST['username'] ?? '';
+    $pass = $_POST['password'] ?? '';
+    if ($user === ADMIN_USER && password_verify($pass, ADMIN_PASS)) {
+        $_SESSION['admin_logged_in'] = true;
+        echo json_encode(['success' => true]);
+    } else {
+        echo json_encode(['success' => false, 'message' => 'Username atau password salah']);
+    }
+    exit;
+}
+
 if (empty($_SESSION['admin_logged_in'])) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;

@@ -31,9 +31,10 @@ if (!defined('BOT_TOKEN') || empty(BOT_TOKEN)) {
     die("❌ BOT_TOKEN belum di-define sebelum memuat bot.php!\n");
 }
 
-// Persistent cache untuk conversation state
-$cachePool = new FilesystemAdapter('protel_bot', 3600, STORAGE_DIR . 'cache/');
-$cache     = new Psr16Cache($cachePool);
+// Persistent cache terisolasi per-bot token (agar state conversation tidak tabrakan antar bot)
+$_botCacheNs = 'protel_' . substr(md5(BOT_TOKEN), 0, 8);
+$cachePool   = new FilesystemAdapter($_botCacheNs, 3600, STORAGE_DIR . 'cache/');
+$cache       = new Psr16Cache($cachePool);
 
 $bot = Nutgram::factory(BOT_TOKEN, new Configuration(
     cache: $cache,
@@ -331,10 +332,16 @@ $bot->onDocument(function (Nutgram $bot) {
 
     $bot->sendChatAction('typing');
 
-    // Download file dari Telegram
+    // Download file dari Telegram via cURL (lebih reliable di Windows)
     $fileInfo = $bot->getFile($doc->file_id);
-    $url      = "https://api.telegram.org/file/bot" . BOT_TOKEN . "/" . $fileInfo->file_path;
-    $csvData  = file_get_contents($url);
+    $fileUrl  = "https://api.telegram.org/file/bot" . BOT_TOKEN . "/" . $fileInfo->file_path;
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $fileUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    $csvData = curl_exec($ch);
+    curl_close($ch);
 
     if (!$csvData) {
         $bot->sendMessage("❌ Gagal mengunduh file.");
