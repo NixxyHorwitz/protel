@@ -196,6 +196,67 @@ async function loadSettings() {
     }
 }
 
+async function checkWebhook() {
+    const wrap = document.getElementById('webhookStatus');
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:13px">⏳ Memeriksa...</div>';
+
+    const res = await api('check_webhook');
+    if (!res.success) {
+        wrap.innerHTML = `<div style="color:var(--danger);font-size:13px">❌ ${res.message}</div>`;
+        return;
+    }
+
+    const d = res.data;
+    const isSet  = d.is_set;
+    const hasErr = !!d.last_error;
+
+    let statusIcon  = isSet ? (hasErr ? '⚠️' : '✅') : '❌';
+    let statusColor = isSet ? (hasErr ? '#f59e0b' : '#10b981') : '#ef4444';
+    let statusText  = isSet ? (hasErr ? 'Webhook aktif tapi ada error' : 'Webhook aktif & normal') : 'Webhook BELUM di-set';
+
+    wrap.innerHTML = `
+        <div style="display:grid;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px;padding:12px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06)">
+                <span style="font-size:22px">${statusIcon}</span>
+                <div>
+                    <div style="font-weight:600;color:${statusColor}">${statusText}</div>
+                    ${d.url ? `<div style="font-size:12px;color:var(--muted);margin-top:2px;word-break:break-all">${d.url}</div>` : ''}
+                </div>
+            </div>
+            ${d.pending > 0 ? `
+            <div style="font-size:13px;color:#f59e0b;padding:8px 12px;background:rgba(245,158,11,0.1);border-radius:8px">
+                ⏳ <strong>${d.pending}</strong> update pending (bot mungkin lambat merespons)
+            </div>` : ''}
+            ${hasErr ? `
+            <div style="font-size:13px;padding:10px 14px;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);border-radius:8px;color:#fca5a5">
+                <strong>Last Error (${d.last_error_ts}):</strong><br>${d.last_error}
+            </div>` : ''}
+            ${isSet && !hasErr ? `
+            <div style="font-size:13px;color:#6ee7b7;padding:8px 12px;background:rgba(16,185,129,0.1);border-radius:8px">
+                🟢 Bot siap menerima pesan dari pengguna
+            </div>` : ''}
+        </div>`;
+}
+
+async function setWebhook() {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Proses...';
+
+    const res = await api('set_webhook');
+
+    btn.disabled = false;
+    btn.innerHTML = '⚡ Set Ulang Webhook';
+
+    if (res.success) {
+        toast('✅ Webhook berhasil diset!');
+        setTimeout(checkWebhook, 1000);
+    } else {
+        toast('❌ ' + res.message, 'error');
+    }
+}
+
+
 async function saveConfig(e) {
     e.preventDefault();
     const btn = e.target.querySelector('button[type=submit]');
@@ -214,6 +275,7 @@ async function saveConfig(e) {
 
     if (res.success) {
         toast('✅ Konfigurasi berhasil disimpan!');
+        setTimeout(checkWebhook, 1500);
     } else {
         toast('❌ Gagal: ' + res.message, 'error');
     }

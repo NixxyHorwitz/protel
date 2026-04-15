@@ -97,7 +97,23 @@ if (empty($_SESSION['admin_logged_in'])) { header('Location: index.php'); exit; 
                     <p class="page-sub">Isi sekali, simpan, dan bot langsung aktif</p>
                 </div>
             </div>
-            <div style="max-width: 600px">
+            <div style="max-width: 620px; display:flex; flex-direction:column; gap: 20px">
+
+                <!-- Webhook Status Card -->
+                <div class="card" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:22px">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+                        <div style="font-weight:700;font-size:15px">🔗 Status Webhook</div>
+                        <div style="display:flex;gap:8px">
+                            <button class="btn btn-secondary" style="font-size:12px;padding:6px 14px" onclick="checkWebhook()">🔍 Cek Status</button>
+                            <button class="btn btn-primary"   style="font-size:12px;padding:6px 14px" onclick="setWebhook()">⚡ Set Ulang Webhook</button>
+                        </div>
+                    </div>
+                    <div id="webhookStatus">
+                        <div style="color:var(--muted);font-size:13px">Klik "Cek Status" untuk melihat kondisi webhook terkini.</div>
+                    </div>
+                </div>
+
+                <!-- Config Form -->
                 <div class="card" style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:28px">
                     <p style="font-size:13px;color:var(--muted);margin-bottom:24px;line-height:1.6">
                         ⚠️ <strong>Catatan:</strong> Konfigurasi disimpan ke <code>config/app.php</code>.<br>

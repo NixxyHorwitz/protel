@@ -141,9 +141,60 @@ try {
             respond('Konfigurasi berhasil disimpan');
 
         // ──────────────────────────────────────────────────────
+        case 'check_webhook':
+            $token = defined('BOT_TOKEN') ? BOT_TOKEN : '';
+            if (empty($token)) error('BOT_TOKEN belum dikonfigurasi');
+
+            $ch = curl_init("https://api.telegram.org/bot{$token}/getWebhookInfo");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+            $raw = curl_exec($ch);
+            $err = curl_error($ch);
+            curl_close($ch);
+
+            if (!$raw) error('Gagal menghubungi Telegram API: ' . $err);
+
+            $data = json_decode($raw, true);
+            if (!$data || empty($data['ok'])) error('Respons tidak valid dari Telegram');
+
+            $info = $data['result'];
+            respond([
+                'url'           => $info['url'] ?? '',
+                'pending'       => $info['pending_update_count'] ?? 0,
+                'last_error'    => $info['last_error_message'] ?? '',
+                'last_error_ts' => isset($info['last_error_date'])
+                                   ? date('d/m/Y H:i:s', $info['last_error_date'])
+                                   : '',
+                'is_set'        => !empty($info['url']),
+                'max_connections' => $info['max_connections'] ?? 40,
+            ]);
+
+        // ──────────────────────────────────────────────────────
+        case 'set_webhook':
+            $token  = defined('BOT_TOKEN') ? BOT_TOKEN : '';
+            $appUrl = defined('APP_URL')   ? APP_URL   : '';
+            if (empty($token)) error('BOT_TOKEN belum dikonfigurasi');
+            if (empty($appUrl)) error('APP_URL belum dikonfigurasi');
+
+            $webhookUrl = rtrim($appUrl, '/') . '/webhook.php';
+            $ch = curl_init("https://api.telegram.org/bot{$token}/setWebhook");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, ['url' => $webhookUrl]);
+            $raw = curl_exec($ch);
+            curl_close($ch);
+
+            $res = json_decode($raw, true);
+            if (!$res || empty($res['ok'])) error('Gagal set webhook: ' . ($res['description'] ?? 'Unknown'));
+            respond('Webhook berhasil diset ke: ' . $webhookUrl);
+
+        // ──────────────────────────────────────────────────────
         default:
             error("Unknown action: {$action}");
     }
 } catch (Throwable $e) {
-    error('DB Error: ' . $e->getMessage());
+    error('Error: ' . $e->getMessage());
 }
