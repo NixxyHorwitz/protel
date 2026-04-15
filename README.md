@@ -1,73 +1,108 @@
-# 📡 ProTel Broadcast System
+# 📡 ProTel Broadcast System — SaaS Edition
 
-Sistem broadcast Telegram via **akun asli** (userbot) menggunakan PHP + MadelineProto.
+Sistem broadcast Telegram berbasis **SaaS (Software as a Service)** — Admin kelola bot via Web Panel, User kelola broadcast langsung dari bot Telegram-nya.
+
+---
+
+## 🏗️ Arsitektur
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  👑 SUPER ADMIN (Web Panel)                              │
+│  http://localhost/protel/dashboard.php                   │
+│  • Tambah / Hapus Token Bot Telegram                     │
+│  • Pantau semua pengguna dan campaign secara global      │
+└─────────────────────┬───────────────────────────────────┘
+                      │ mendaftarkan webhook
+                      ▼
+┌─────────────────────────────────────────────────────────┐
+│  🤖 BOT TELEGRAM (User Interface)                        │
+│  Setiap user chat ke bot → data mereka TERISOLASI        │
+│  • 📱 Login akun Telegram (OTP + 2FA)                   │
+│  • 📋 Tambah/Import kontak (CSV)                         │
+│  • 📢 Buat & kirim broadcast                             │
+│  • 📊 Pantau riwayat campaign                            │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## ⚙️ Persyaratan
+
+- PHP 8.1+
+- MySQL / MariaDB
+- Composer
+- Extension PHP: `curl`, `pdo_mysql`, `openssl`, `mbstring`
 
 ---
 
 ## 🚀 Cara Setup
 
-### 1. Dapatkan Telegram API Credentials
-Buka **https://my.telegram.org/apps** → Login → Create App → catat **API ID** dan **API Hash**.
+### 1. Install Dependencies
+```bash
+composer install
+```
 
-### 2. Isi Config
-Edit file `config/app.php`:
+### 2. Konfigurasi
+Edit `config/app.php`:
 ```php
-define('TG_API_ID',   '12345678');          // ganti dengan API ID kamu
-define('TG_API_HASH', 'abcdef1234567890');   // ganti dengan API Hash kamu
+define('TG_API_ID',   '12345678');   // Dari my.telegram.org/apps
+define('TG_API_HASH', 'abcdef...');  // Dari my.telegram.org/apps
+define('APP_URL',     'https://domain-kamu.com/protel');
 ```
 
-### 3. Setup Database
-Pastikan MySQL Laragon berjalan, lalu:
-- Import `database/schema.sql` via phpMyAdmin atau:
-  ```
-  mysql -u root protel_broadcast < database/schema.sql
-  ```
-- Setelah import, **update password admin** via browser:
-  ```
-  http://localhost/protel/gen_password.php
-  ```
+Edit `config/database.php`:
+```php
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'protel_broadcast');
+define('DB_USER', 'root');
+define('DB_PASS', '');
+```
 
-### 4. Cek Setup
-Buka: **http://localhost/protel/setup.php**
+### 3. Import Database
+```sql
+-- Via phpMyAdmin / CLI:
+mysql -u root protel_broadcast < database/schema.sql
+```
 
-### 5. Login Dashboard
-Buka: **http://localhost/protel/index.php**
-- Username: `admin`
-- Password: `admin123`
+Atau jalankan migration SaaS (jika upgrade dari versi lama):
+```php
+php migrate_saas.php
+```
+
+### 4. Akses Web Admin
+- Buka: `http://localhost/protel/`
+- Login: **admin** / **admin123**
+- Ganti password via `gen_password.php`
+
+### 5. Tambah Bot Telegram
+1. Buat bot baru di **@BotFather** → `/newbot`
+2. Salin **API Token**
+3. Buka Web Admin → Tab **Kelola Bot** → **+ Tambah Bot**
+4. Paste Token + isi APP_URL → Klik **Simpan & Set Webhook**
+5. ✅ Bot langsung aktif dan siap digunakan
 
 ---
 
-## 📋 Alur Login Akun Telegram
+## 🤖 Cara Penggunaan Bot (Untuk User)
 
-```
-1. Dashboard → Tab "Akun Telegram" → Klik "+ Tambah Akun"
-2. Masukkan nomor HP format internasional (+628xxx)
-3. Sistem kirim OTP ke akun Telegram tersebut
-4. Masukkan kode 5 digit OTP
-5. (Jika ada 2FA) Masukkan password Telegram
-6. Akun tersimpan dan siap digunakan untuk broadcast!
-```
+1. Cari dan start bot yang sudah didaftarkan Admin
+2. Ketik `/start` → tampil Menu Utama
+3. Alur penggunaan:
+   - 📱 **Akun** → Login akun Telegram (OTP → verifikasi code → (2FA jika perlu))
+   - 📋 **Kontak** → Ketik manual atau kirim file `.csv` ke bot
+   - 📢 **Broadcast** → Tulis pesan → pilih target → pilih akun pengirim → delay → kirim!
+   - 📊 **Riwayat** → Pantau progress campaign, pause/resume
 
 ---
 
-## 📢 Alur Broadcast
+## 🔧 Development Local (Tanpa Webhook)
 
+Untuk testing di lokal (Windows/Laragon):
+```bash
+php polling.php "TOKEN_BOT_DARI_BOTFATHER"
 ```
-1. Tab "Daftar Kontak" → Import CSV atau tambah manual
-   Format CSV: phone, nama, username (baris pertama = header)
-
-2. Tab "Kirim Broadcast":
-   - Tulis pesan (bisa markdown Telegram)
-   - Pilih media (foto/video/dokumen) - opsional
-   - Set delay antar pesan (min 3 detik)
-   - Pilih grup kontak tujuan
-   - Centang akun pengirim yang mau dipakai
-   - Klik "Kirim Broadcast"
-
-3. Tab "Riwayat" → Monitor progress real-time (auto-refresh 8 detik)
-   - Bisa pause ⏸ / resume ▶ campaign yang berjalan
-   - Klik 🔍 untuk lihat detail per-pesan
-```
+> ⚠️ Jalankan terpisah dari web server. Ctrl+C untuk berhenti.
 
 ---
 
@@ -75,47 +110,49 @@ Buka: **http://localhost/protel/index.php**
 
 ```
 protel/
-├── api/
-│   └── handler.php          # API endpoint (semua AJAX request)
+├── api/handler.php          # API AJAX untuk Web Admin
 ├── assets/
-│   ├── dashboard.css        # Styling dashboard
-│   └── dashboard.js         # Logic frontend
+│   ├── dashboard.css        # Styling Super Admin Panel
+│   └── dashboard.js         # Logic Super Admin Panel
+├── bot/
+│   ├── BotHelper.php        # Helper functions (DB queries, text builders)
+│   ├── Keyboards.php        # Inline keyboard builder
+│   └── Conversations/
+│       ├── AddAccountConversation.php   # Alur login OTP/2FA
+│       ├── AddContactConversation.php   # Alur tambah kontak manual
+│       └── BroadcastConversation.php    # Alur kirim broadcast
+├── bot.php                  # Definisi semua handler bot
 ├── config/
-│   ├── app.php              # ⚙ KONFIGURASI UTAMA (isi API ID disini)
-│   └── database.php         # Konfigurasi database
-├── database/
-│   └── schema.sql           # SQL schema
-├── lib/
-│   └── TelegramHandler.php  # Helper class MadelineProto
+│   ├── app.php              # ⚠️ WAJIB DIISI: API_ID, API_HASH, APP_URL
+│   └── database.php         # ⚠️ WAJIB DIISI: kredensial DB
+├── database/schema.sql      # Schema database lengkap
+├── dashboard.php            # Halaman Super Admin Panel (web)
+├── index.php                # Halaman login admin
+├── polling.php              # Runner untuk development lokal
 ├── scripts/
-│   ├── request_otp.php      # CLI: kirim OTP
-│   ├── verify_otp.php       # CLI: verifikasi OTP
-│   ├── verify_2fa.php       # CLI: verifikasi password 2FA
-│   └── broadcast_worker.php # Background worker broadcast
-├── sessions/                # 🔒 Session file akun (auto-created)
-├── uploads/                 # Media uploads (auto-created)
-├── vendor/                  # Composer dependencies
-├── dashboard.php            # Halaman dashboard utama
-├── gen_password.php         # Tool generate password hash
-├── index.php                # Halaman login
-└── setup.php                # Health check page
+│   ├── broadcast_worker.php # Background worker pengiriman pesan
+│   ├── request_otp.php      # CLI: minta OTP ke Telegram
+│   ├── verify_otp.php       # CLI: verifikasi kode OTP
+│   └── verify_2fa.php       # CLI: verifikasi password 2FA
+├── sessions/                # Folder session MadelineProto (gitignored)
+├── storage/                 # Folder cache Nutgram (gitignored)
+└── webhook.php              # Webhook handler (production)
 ```
 
 ---
 
-## ⚠️ Penting
+## 🔐 Keamanan
 
-- **Satu akun Telegram tidak boleh digunakan untuk terlalu banyak pesan** dalam waktu singkat → sistem akan terkena FLOOD_LIMIT
-- Set **delay minimum 3-5 detik** antar pesan untuk mengurangi risiko ban
-- Sebaiknya pakai **beberapa akun** (5-10) untuk mendistribusikan beban
-- MadelineProto **berjalan lebih lambat di Windows** (peringatan normal, bukan error)
-- Pastikan `sessions/` dan `uploads/` punya permission write
+- Folder `sessions/` dilindungi `.htaccess` (Deny from all)
+- Password admin harus diganti setelah install via `gen_password.php`
+- Token bot disimpan di database, tidak di config file
+- Data tiap pengguna bot terisolasi via `owner_tg_id`
 
 ---
 
-## 🛡️ Keamanan Production
+## ⚠️ Catatan Penting
 
-1. Ganti password admin via `gen_password.php`
-2. Hapus `gen_password.php` setelah digunakan
-3. Set `APP_URL` ke domain production di `config/app.php`
-4. Pastikan folder `sessions/` tidak dapat diakses via web (tambah `.htaccess`)
+- **Flood Limit**: Atur delay minimal **3-5 detik** antar pesan
+- **Windows**: MadelineProto berjalan lebih lambat, gunakan Linux di production
+- **Sessions**: Jangan pernah commit folder `sessions/` ke Git
+- **TG_API_ID**: Satu API ID bisa dipakai untuk banyak nomor akun
