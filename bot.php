@@ -37,10 +37,11 @@ $_botCacheNs = 'protel_' . substr(md5(BOT_TOKEN), 0, 8);
 $cachePool   = new FilesystemAdapter($_botCacheNs, 3600, STORAGE_DIR . 'cache/');
 $cache       = new Psr16Cache($cachePool);
 
-$bot = Nutgram::factory(BOT_TOKEN, new Configuration(
+$bot = new Nutgram(BOT_TOKEN, new Configuration(
     cache: $cache,
     botName: 'ProTel',
 ));
+
 
 // ── Admin Middleware ─────────────────────────────────────────────────────────
 $bot->middleware(function (Nutgram $bot, $next) {
