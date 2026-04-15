@@ -1,5 +1,7 @@
 {
     "require": {
-        "danog/madelineproto": "^8.6"
+        "danog/madelineproto": "^8.6",
+        "nutgram/nutgram": "^4.45",
+        "symfony/cache": "^7.4"
     }
 }
