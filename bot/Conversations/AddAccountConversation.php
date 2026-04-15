@@ -19,6 +19,11 @@ class AddAccountConversation extends Conversation
     public ?string $phone = null;
 
     // ── Step 1: Minta nomor HP ────────────────────────────
+    public function __invoke(Nutgram $bot): void
+    {
+        $this->start($bot);
+    }
+
     public function start(Nutgram $bot): void
     {
         $bot->sendMessage(

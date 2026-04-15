@@ -26,6 +26,11 @@ class BroadcastConversation extends Conversation
     public int     $delaySec      = 5;
 
     // ── Step 1: Minta pesan ──────────────────────────────
+    public function __invoke(Nutgram $bot): void
+    {
+        $this->start($bot);
+    }
+
     public function start(Nutgram $bot): void
     {
         $accounts = getAccounts($bot->userId());
