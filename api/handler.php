@@ -81,20 +81,32 @@ try {
             
             if (empty($token) || empty($appUrl)) error("Token dan URL wajib diisi");
             
+            // Helper cURL agar tidak hang di Windows
+            $cUrlGet = function($url) {
+                $ch = curl_init();
+                curl_setopt($ch, CURLOPT_URL, $url);
+                curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+                curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+                curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+                $res = curl_exec($ch);
+                curl_close($ch);
+                return $res;
+            };
+
             // 1. Validasi Token ke Telegram API
             $getMeUrl = "https://api.telegram.org/bot{$token}/getMe";
-            $meData = @file_get_contents($getMeUrl);
-            if (!$meData) error("Token tidak valid / Ditolak oleh Telegram");
+            $meData = $cUrlGet($getMeUrl);
+            if (!$meData) error("Token tidak valid / Gagal menghubungi API Telegram");
             
             $me = json_decode($meData, true);
-            if (!$me || empty($me['ok'])) error("Token tidak valid");
+            if (!$me || empty($me['ok'])) error("Token tidak valid: " . ($me['description'] ?? ''));
             
             $username = $me['result']['username'];
             
             // 2. Set Webhook
             $webhookUrl = rtrim($appUrl, '/') . '/webhook.php?token=' . urlencode($token);
             $sethookUrl = "https://api.telegram.org/bot{$token}/setWebhook?url=" . urlencode($webhookUrl);
-            $hookData = @file_get_contents($sethookUrl);
+            $hookData = $cUrlGet($sethookUrl);
             
             if (!$hookData) error("Gagal set webhook (Network Error)");
             $hookRes = json_decode($hookData, true);
