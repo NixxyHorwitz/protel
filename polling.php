@@ -1,22 +1,17 @@
 <?php
 /**
- * ProTel Bot — Long Polling Runner (Untuk Testing Local)
- *
- * Cara pakai:
- * php polling.php "TOKEN_BOT_KAMU"
+ * ProTel Bot — Long Polling (Development)
+ * Jalankan: php polling.php
  */
-
 require_once __DIR__ . '/config/app.php';
 
-$token = $argv[1] ?? '';
-if (empty($token)) {
-    die("❌ Error! Cara menjalankan:\nphp polling.php \"TOKEN_BOT_DARI_BOTFATHER\"\n");
+if (empty(BOT_TOKEN)) {
+    die("❌ BOT_TOKEN belum diisi di config/app.php!\n");
 }
 
-define('BOT_TOKEN', $token);
-define('ADMIN_IDS', []);
+define('ADMIN_IDS', []);  // Kosong = semua user bisa akses bot
 
 $bot = require __DIR__ . '/bot.php';
 echo "🚀 ProTel Bot berjalan (long polling)...\n";
-echo "   Tekan Ctrl+C untuk berhenti.\n\n";
+echo "   Ctrl+C untuk berhenti.\n\n";
 $bot->run();

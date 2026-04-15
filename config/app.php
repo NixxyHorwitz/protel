@@ -3,8 +3,9 @@
 // TELEGRAM API CREDENTIALS
 // Daftar di https://my.telegram.org/apps
 // =============================================
-define('TG_API_ID',   '');        // isi dengan API ID kamu — my.telegram.org/apps
-define('TG_API_HASH', '');        // isi dengan API Hash kamu
+define('TG_API_ID',   '');        // Dari my.telegram.org/apps
+define('TG_API_HASH', '');        // Dari my.telegram.org/apps
+define('BOT_TOKEN',   '');        // Token bot dari @BotFather
 
 // =============================================
 // APP SETTINGS

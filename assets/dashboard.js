@@ -1,253 +1,220 @@
 /**
- * ProTel SAAS - Super Admin Dashboard Script
+ * ProTel Admin — Dashboard JS (Simplified)
  */
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // Nav tabs
-    document.querySelectorAll('.nav-item').forEach(el => {
-        if (el.hasAttribute('data-tab')) {
-            el.addEventListener('click', (e) => {
-                e.preventDefault();
-                switchTab(el.getAttribute('data-tab'));
-            });
+    document.querySelectorAll('.nav-item[data-tab]').forEach(el => {
+        el.addEventListener('click', e => {
+            e.preventDefault();
+            switchTab(el.getAttribute('data-tab'));
+        });
+    });
+
+    document.getElementById('sidebarToggle').addEventListener('click', () => {
+        document.getElementById('sidebar').classList.toggle('active');
+    });
+
+    document.getElementById('btnLogout').addEventListener('click', () => {
+        if (confirm('Yakin ingin logout?')) {
+            window.location.href = 'dashboard.php?logout=1';
         }
     });
 
-    // Modals
-    document.querySelectorAll('.modal-close').forEach(el => {
-        el.addEventListener('click', () => closeModal(el.getAttribute('data-close')));
-    });
+    // Form konfigurasi bot
+    document.getElementById('frmConfig').addEventListener('submit', saveConfig);
 
-    document.getElementById('frmBot').addEventListener('submit', handleAddBot);
-
-    // Initial load
     loadDashboard();
 });
 
-// Navigation
+// ── Navigation ────────────────────────────────────────────────
 function switchTab(tabId) {
+    const titles = {
+        dashboard: 'Overview',
+        users:     'Data Pengguna',
+        campaigns: 'Semua Campaign',
+        settings:  'Konfigurasi Bot',
+    };
+
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
     document.querySelector(`.nav-item[data-tab="${tabId}"]`)?.classList.add('active');
-
     document.querySelectorAll('.tab-pane').forEach(el => el.classList.remove('active'));
     document.getElementById('tab-' + tabId)?.classList.add('active');
-    
-    // Toggle sidebar on mobile
-    if (window.innerWidth <= 768) {
-        document.getElementById('sidebar').classList.remove('active');
-    }
+    document.getElementById('topbarTitle').textContent = titles[tabId] || tabId;
+
+    if (window.innerWidth <= 768) document.getElementById('sidebar').classList.remove('active');
 
     if (tabId === 'dashboard') loadDashboard();
-    if (tabId === 'bots') loadBots();
-    if (tabId === 'users') loadUsers();
+    if (tabId === 'users')     loadUsers();
     if (tabId === 'campaigns') loadCampaigns();
+    if (tabId === 'settings')  loadSettings();
 }
 
-document.getElementById('sidebarToggle').addEventListener('click', () => {
-    document.getElementById('sidebar').classList.toggle('active');
-});
-
-// Toast notification
-function showToast(message, type = 'success') {
-    const toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.className = 'toast ' + type + ' show';
-    setTimeout(() => { toast.classList.remove('show'); }, 3000);
-}
-
-// Modal management
-function openModal(id) {
-    document.getElementById(id).classList.add('open');
-}
-function closeModal(id) {
-    document.getElementById(id).classList.remove('open');
-}
-function enableBtn(btnId, enabled, loadingText = 'Memproses...') {
-    const btn = document.querySelector(`#${btnId} button[type=submit]`);
-    if (!btn) return;
-    if (!enabled) {
-        btn.dataset.og = btn.innerHTML;
-        btn.innerHTML = `⏳ ${loadingText}`;
-        btn.disabled = true;
-    } else {
-        btn.innerHTML = btn.dataset.og;
-        btn.disabled = false;
-    }
-}
-
-// API Call Wrapper
-async function apiCall(action, data = {}) {
-    const formData = new FormData();
-    formData.append('action', action);
-    for (const key in data) {
-        if (data[key] instanceof File) {
-            formData.append(key, data[key]);
-        } else {
-            formData.append(key, typeof data[key] === 'object' ? JSON.stringify(data[key]) : data[key]);
-        }
-    }
-    
+// ── API Wrapper ───────────────────────────────────────────────
+async function api(action, data = {}) {
+    const fd = new FormData();
+    fd.append('action', action);
+    Object.entries(data).forEach(([k, v]) => fd.append(k, v));
     try {
-        const res = await fetch('api/handler.php', { method: 'POST', body: formData });
+        const res = await fetch('api/handler.php', { method: 'POST', body: fd });
         return await res.json();
     } catch (e) {
-        return { success: false, message: 'Server error: ' + e.message };
+        return { success: false, message: e.message };
     }
 }
 
-// --- TAB LOADER FUNCTIONS ---
+// ── Toast ─────────────────────────────────────────────────────
+function toast(msg, type = 'success') {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `toast ${type} show`;
+    setTimeout(() => el.classList.remove('show'), 3500);
+}
+
+function progressBar(pct) {
+    pct = Math.min(100, Math.max(0, pct));
+    return `<div class="progress-bar-wrap" style="height:6px;max-width:140px;margin-bottom:4px">
+                <div class="progress-bar-fill" style="width:${pct}%"></div>
+            </div><small>${pct}%</small>`;
+}
+
+function statusBadge(status) {
+    const map = {
+        running: 'badge-running', done: 'badge-done',
+        paused: 'badge-pending', failed: 'badge-failed', draft: 'badge-draft',
+    };
+    return `<span class="badge ${map[status] || 'badge-draft'}">${status}</span>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  OVERVIEW
+// ═══════════════════════════════════════════════════════════
 
 async function loadDashboard() {
-    const res = await apiCall('get_global_stats');
+    const res = await api('get_global_stats');
     if (res.success) {
-        document.getElementById('statBots').textContent = res.data.bots;
-        document.getElementById('statUsers').textContent = res.data.users;
+        document.getElementById('statUsers').textContent     = res.data.users;
+        document.getElementById('statAccounts').textContent  = res.data.accounts;
         document.getElementById('statCampaigns').textContent = res.data.campaigns;
-        document.getElementById('statSent').textContent = res.data.sent;
+        document.getElementById('statSent').textContent      = res.data.sent;
+    }
+
+    // Running campaigns only
+    const rc = await api('get_global_campaigns', { status_filter: 'running' });
+    const wrap = document.getElementById('runningCampaigns');
+    if (rc.success && rc.data.length > 0) {
+        wrap.innerHTML = `<table class="data-table">
+            <thead><tr><th>Nama Campaign</th><th>User UID</th><th>Progress</th><th>Terkirim</th></tr></thead>
+            <tbody>${rc.data.map(c => {
+                const pct = c.total > 0 ? Math.round((c.sent / c.total) * 100) : 0;
+                return `<tr>
+                    <td><strong>${c.name}</strong></td>
+                    <td><code>${c.owner_tg_id}</code></td>
+                    <td>${progressBar(pct)}</td>
+                    <td>${c.sent} / ${c.total}</td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table>`;
+    } else {
+        wrap.innerHTML = '<div class="loading-state">✅ Tidak ada campaign yang sedang berjalan.</div>';
     }
 }
 
-async function loadBots() {
-    document.getElementById('botsGrid').innerHTML = '<div class="loading-state">⏳ Memuat bot...</div>';
-    const res = await apiCall('get_bots');
-    if (res.success) {
-        const bots = res.data;
-        if (bots.length === 0) {
-            document.getElementById('botsGrid').innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:40px">Belum ada bot yang ditambahkan.</div>';
-            return;
-        }
-
-        let html = '';
-        bots.forEach(b => {
-            const statusClass = b.status === 'active' ? 'badge-active' : 'badge-inactive';
-            html += `
-                <div class="bot-card ${b.status}">
-                    <div class="bot-header">
-                        <div class="bot-username">🤖 @${b.bot_username}</div>
-                        <div class="status-badge ${statusClass}">${b.status}</div>
-                    </div>
-                    <div class="bot-token" title="Token API" style="-webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; display: -webkit-box; cursor: pointer" onclick="alert('${b.bot_token}')">
-                        ${b.bot_token.substring(0, 15)}...${b.bot_token.slice(-5)}
-                    </div>
-                    <div style="font-size: 13px; color: var(--muted); margin-bottom: 15px">
-                        Ditambahkan: ${b.added_at}
-                    </div>
-                    <div class="bot-actions">
-                        ${b.status === 'active' 
-                          ? `<button class="btn btn-sm" style="flex:1; background:#fee2e2; color:#991b1b; border:1px solid #fca5a5" onclick="deleteBot(${b.id})">🗑 Hapus</button>` 
-                          : `<button class="btn btn-sm btn-primary" style="flex:1" onclick="activateBot(${b.id})">✅ Aktifkan</button>`
-                        }
-                    </div>
-                </div>
-            `;
-        });
-        document.getElementById('botsGrid').innerHTML = html;
-    }
-}
+// ═══════════════════════════════════════════════════════════
+//  USERS
+// ═══════════════════════════════════════════════════════════
 
 async function loadUsers() {
-    document.getElementById('usersTable').innerHTML = '<div class="loading-state">⏳ Memuat data...</div>';
-    const res = await apiCall('get_users');
-    if (res.success && res.data.length > 0) {
-        let rows = res.data.map((u, i) => `
-            <tr>
+    document.getElementById('usersTable').innerHTML = '<div class="loading-state">⏳ Memuat...</div>';
+    const res = await api('get_users');
+    if (!res.success || !res.data.length) {
+        document.getElementById('usersTable').innerHTML = '<div class="loading-state">Belum ada pengguna yang terdaftar.</div>';
+        return;
+    }
+
+    document.getElementById('usersTable').innerHTML = `
+        <table class="data-table">
+            <thead><tr>
+                <th>No</th><th>Telegram User ID</th>
+                <th>Akun Terdaftar</th><th>Total Kontak</th>
+                <th>Campaign</th><th>Pesan Terkirim</th>
+            </tr></thead>
+            <tbody>${res.data.map((u, i) => `<tr>
                 <td>${i + 1}</td>
                 <td><code>${u.owner_tg_id}</code></td>
-                <td>${u.accounts} Akun Tele</td>
-                <td>${u.contacts} Kontak Tersimpan</td>
-                <td>${u.campaigns} Campaign</td>
-            </tr>
-        `).join('');
-        
-        document.getElementById('usersTable').innerHTML = `
-            <table class="data-table">
-                <thead><tr><th width="50">No</th><th>Telegram User ID</th><th>Total Akun</th><th>Total Kontak</th><th>Total Campaign</th></tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        `;
-    } else {
-        document.getElementById('usersTable').innerHTML = '<div class="loading-state">Tidak ada pengguna aktif.</div>';
-    }
+                <td>${u.accounts}</td>
+                <td>${u.contacts}</td>
+                <td>${u.campaigns}</td>
+                <td>${u.sent ?? 0}</td>
+            </tr>`).join('')}</tbody>
+        </table>`;
 }
+
+// ═══════════════════════════════════════════════════════════
+//  CAMPAIGNS
+// ═══════════════════════════════════════════════════════════
 
 async function loadCampaigns() {
-    document.getElementById('campaignsTable').innerHTML = '<div class="loading-state">⏳ Memuat data...</div>';
-    const res = await apiCall('get_global_campaigns');
-    if (res.success && res.data.length > 0) {
-        let rows = res.data.map((c, i) => {
-            const pct = c.total > 0 ? Math.round((c.sent / c.total) * 100) : 0;
-            return `
-            <tr>
-                <td>${c.name}</td>
-                <td><code>${c.owner_tg_id}</code></td>
-                <td><span class="status-badge status-${c.status}">${c.status}</span></td>
-                <td>
-                    <div class="progress-bar-wrap" style="height:6px; margin-bottom:4px; max-width:120px">
-                        <div class="progress-bar-fill" style="width: ${pct}%"></div>
-                    </div>
-                    <small>${c.sent}/${c.total} (${pct}%)</small>
-                </td>
-                <td>${c.created_at}</td>
-            </tr>
-        `}).join('');
-        
-        document.getElementById('campaignsTable').innerHTML = `
-            <table class="data-table">
-                <thead><tr><th>Nama Campaign</th><th>Milik User (UID)</th><th>Status</th><th>Progress</th><th>Dibuat</th></tr></thead>
-                <tbody>${rows}</tbody>
-            </table>
-        `;
-    } else {
-        document.getElementById('campaignsTable').innerHTML = '<div class="loading-state">Tidak ada campaign.</div>';
+    document.getElementById('campaignsTable').innerHTML = '<div class="loading-state">⏳ Memuat...</div>';
+    const res = await api('get_global_campaigns');
+    if (!res.success || !res.data.length) {
+        document.getElementById('campaignsTable').innerHTML = '<div class="loading-state">Belum ada campaign.</div>';
+        return;
+    }
+
+    document.getElementById('campaignsTable').innerHTML = `
+        <table class="data-table">
+            <thead><tr>
+                <th>Nama Campaign</th><th>User UID</th><th>Status</th>
+                <th>Progress</th><th>✓ Terkirim</th><th>✗ Gagal</th><th>Dibuat</th>
+            </tr></thead>
+            <tbody>${res.data.map(c => {
+                const pct = c.total > 0 ? Math.round((c.sent / c.total) * 100) : 0;
+                return `<tr>
+                    <td><strong>${c.name}</strong></td>
+                    <td><code>${c.owner_tg_id}</code></td>
+                    <td>${statusBadge(c.status)}</td>
+                    <td>${progressBar(pct)}</td>
+                    <td>${c.sent}</td>
+                    <td>${c.failed ?? 0}</td>
+                    <td>${c.created_at}</td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table>`;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SETTINGS (Konfigurasi Bot)
+// ═══════════════════════════════════════════════════════════
+
+async function loadSettings() {
+    const res = await api('get_config');
+    if (res.success) {
+        document.getElementById('cfgApiId').value   = res.data.api_id   || '';
+        document.getElementById('cfgApiHash').value = res.data.api_hash || '';
+        document.getElementById('cfgBotToken').value= res.data.bot_token|| '';
+        document.getElementById('cfgAppUrl').value  = res.data.app_url  || '';
     }
 }
 
-// --- ACTIONS ---
-
-document.getElementById('btnAddBot').addEventListener('click', () => {
-    document.getElementById('frmBot').reset();
-    document.getElementById('botAlert').innerHTML = '';
-    openModal('modalBot');
-});
-
-async function handleAddBot(e) {
+async function saveConfig(e) {
     e.preventDefault();
-    const token = document.getElementById('botToken').value.trim();
-    const appUrl = document.getElementById('appUrl').value.trim();
-    const alertBox = document.getElementById('botAlert');
-    
-    alertBox.innerHTML = '';
-    enableBtn('frmBot', false, 'Menghubungi Telegram API...');
-    
-    const res = await apiCall('add_system_bot', { token, app_url: appUrl });
-    
-    enableBtn('frmBot', true);
-    
-    if (res.success) {
-        showToast('Bot berhasil ditambahkan dan webhook diset!');
-        closeModal('modalBot');
-        loadBots();
-        loadDashboard();
-    } else {
-        alertBox.innerHTML = `<div style="color:var(--danger)">❌ ${res.message}</div>`;
-    }
-}
+    const btn = e.target.querySelector('button[type=submit]');
+    btn.disabled = true;
+    btn.innerHTML = '⏳ Menyimpan...';
 
-async function deleteBot(id) {
-    if (!confirm('Hapus bot ini? Bot akan tidak dapat digunakan lagi oleh user.')) return;
-    const res = await apiCall('delete_system_bot', { id });
-    if (res.success) {
-        showToast('Bot berhasil dihapus');
-        loadBots();
-        loadDashboard();
-    } else {
-        showToast('Gagal menghapus bot: ' + res.message, 'error');
-    }
-}
+    const res = await api('save_config', {
+        api_id:    document.getElementById('cfgApiId').value.trim(),
+        api_hash:  document.getElementById('cfgApiHash').value.trim(),
+        bot_token: document.getElementById('cfgBotToken').value.trim(),
+        app_url:   document.getElementById('cfgAppUrl').value.trim(),
+    });
 
-function logout() {
-    if (confirm('Yakin ingin logout?')) {
-        window.location.href = 'dashboard.php?logout=1';
+    btn.disabled = false;
+    btn.innerHTML = '💾 Simpan Konfigurasi';
+
+    if (res.success) {
+        toast('✅ Konfigurasi berhasil disimpan!');
+    } else {
+        toast('❌ Gagal: ' + res.message, 'error');
     }
 }

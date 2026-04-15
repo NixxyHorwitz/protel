@@ -1,24 +1,15 @@
 <?php
 /**
- * ProTel Bot — SaaS Webhook Handler
- *
- * Menerima request dari Telegram untuk semua bot yang didaftarkan.
+ * ProTel Bot — Webhook Handler (Production)
  */
-
-// Load app config (untuk SESSION_DIR, STORAGE_DIR, dll) tapi BUKAN untuk BOT_TOKEN
 require_once __DIR__ . '/config/app.php';
 
-$token = $_GET['token'] ?? '';
-if (empty($token)) {
-    http_response_code(400);
-    die("Token missing");
+if (empty(BOT_TOKEN)) {
+    http_response_code(500);
+    die("BOT_TOKEN not configured");
 }
 
-// Define token dinamis berdasarkan bot mana yang sedang menerima chat
-define('BOT_TOKEN', $token);
-
-// Admin IDS dikosongkan agar pengguna manapun bisa menggunakan bot (SaaS)
-define('ADMIN_IDS', []);
+define('ADMIN_IDS', []);  // Kosong = semua user bisa akses bot
 
 $bot = require __DIR__ . '/bot.php';
 $bot->run(\SergiX44\Nutgram\RunningMode\Webhook::class);
