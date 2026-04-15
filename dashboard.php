@@ -14,7 +14,7 @@ if (empty($_SESSION['admin_logged_in'])) {
     <meta name="description" content="Super Admin Panel untuk Manajemen Bot Telegram">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/dashboard.css">
+    <link rel="stylesheet" href="assets/dashboard.css?v=2">
     <style>
         .bot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; margin-top: 20px; }
         .bot-card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); border: 1px solid var(--border); }
@@ -173,6 +173,6 @@ if (empty($_SESSION['admin_logged_in'])) {
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script src="assets/dashboard.js"></script>
+<script src="assets/dashboard.js?v=2"></script>
 </body>
 </html>
