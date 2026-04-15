@@ -1,13 +1,20 @@
 <?php
 /**
- * ProTel Bot — Long Polling Runner
+ * ProTel Bot — Long Polling Runner (Untuk Testing Local)
  *
- * Gunakan untuk development lokal:
- *   php polling.php
- *
- * Untuk production, set webhook ke:
- *   https://domain.com/protel/webhook.php
+ * Cara pakai:
+ * php polling.php "TOKEN_BOT_KAMU"
  */
+
+require_once __DIR__ . '/config/app.php';
+
+$token = $argv[1] ?? '';
+if (empty($token)) {
+    die("❌ Error! Cara menjalankan:\nphp polling.php \"TOKEN_BOT_DARI_BOTFATHER\"\n");
+}
+
+define('BOT_TOKEN', $token);
+define('ADMIN_IDS', []);
 
 $bot = require __DIR__ . '/bot.php';
 echo "🚀 ProTel Bot berjalan (long polling)...\n";

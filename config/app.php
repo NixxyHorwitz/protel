@@ -7,13 +7,6 @@ define('TG_API_ID',   '');        // isi dengan API ID kamu — my.telegram.org/
 define('TG_API_HASH', '');        // isi dengan API Hash kamu
 
 // =============================================
-// TELEGRAM BOT CONFIG
-// Buat bot di @BotFather → /newbot
-// =============================================
-define('BOT_TOKEN',  '');         // Token dari @BotFather
-define('ADMIN_IDS',  []);         // Array Telegram user ID admin: [123456789, 987654321]
-
-// =============================================
 // APP SETTINGS
 // =============================================
 define('APP_NAME',    'ProTel Broadcast');

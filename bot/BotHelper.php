@@ -32,19 +32,20 @@ function runScript(string $scriptPath, array $args = []): array
 /**
  * Simpan akun ke database setelah login berhasil
  */
-function saveAccountToDB(string $phone, array $data): bool
+function saveAccountToDB(int $ownerId, string $phone, array $data): bool
 {
     try {
         $pdo   = getDB();
         $safe  = preg_replace('/[^0-9]/', '', $phone);
         $sFile = rtrim(SESSION_DIR, '/\\') . DIRECTORY_SEPARATOR . "account_{$safe}.madeline";
         $pdo->prepare("
-            INSERT INTO tg_accounts (phone, first_name, last_name, username, tg_user_id, session_file, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'active')
+            INSERT INTO tg_accounts (owner_tg_id, phone, first_name, last_name, username, tg_user_id, session_file, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'active')
             ON DUPLICATE KEY UPDATE
                 first_name=VALUES(first_name), last_name=VALUES(last_name),
                 username=VALUES(username), tg_user_id=VALUES(tg_user_id), status='active'
         ")->execute([
+            $ownerId,
             $phone,
             $data['first_name'] ?? '',
             $data['last_name']  ?? '',
@@ -53,50 +54,55 @@ function saveAccountToDB(string $phone, array $data): bool
             $sFile,
         ]);
         return true;
-    } catch (\Throwable) {
+    } catch (\Throwable $e) {
         return false;
     }
 }
 
 // ── DB helpers ────────────────────────────────────────
 
-function getAccounts(): array
+function getAccounts(int $ownerId): array
 {
-    return getDB()->query(
-        "SELECT * FROM tg_accounts ORDER BY status='active' DESC, added_at DESC"
-    )->fetchAll(\PDO::FETCH_ASSOC);
+    $stmt = getDB()->prepare("SELECT * FROM tg_accounts WHERE owner_tg_id = ? ORDER BY status='active' DESC, added_at DESC");
+    $stmt->execute([$ownerId]);
+    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 }
 
-function getContactGroups(): array
+function getContactGroups(int $ownerId): array
 {
-    return getDB()->query(
-        "SELECT group_name, COUNT(*) AS cnt FROM broadcast_contacts WHERE is_active=1 GROUP BY group_name ORDER BY group_name"
-    )->fetchAll(\PDO::FETCH_ASSOC);
+    $stmt = getDB()->prepare("SELECT group_name, COUNT(*) AS cnt FROM broadcast_contacts WHERE owner_tg_id = ? AND is_active=1 GROUP BY group_name ORDER BY group_name");
+    $stmt->execute([$ownerId]);
+    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 }
 
-function getCampaigns(int $limit = 15): array
+function getCampaigns(int $ownerId, int $limit = 15): array
 {
-    return getDB()->query(
-        "SELECT * FROM broadcast_campaigns ORDER BY created_at DESC LIMIT {$limit}"
-    )->fetchAll(\PDO::FETCH_ASSOC);
+    $stmt = getDB()->prepare("SELECT * FROM broadcast_campaigns WHERE owner_tg_id = ? ORDER BY created_at DESC LIMIT " . (int)$limit);
+    $stmt->execute([$ownerId]);
+    return $stmt->fetchAll(\PDO::FETCH_ASSOC);
 }
 
-function getStats(): array
+function getStats(int $ownerId): array
 {
     $pdo = getDB();
+    $s1 = $pdo->prepare("SELECT COUNT(*) FROM tg_accounts WHERE owner_tg_id = ? AND status='active'"); $s1->execute([$ownerId]);
+    $s2 = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE owner_tg_id = ? AND is_active=1"); $s2->execute([$ownerId]);
+    $s3 = $pdo->prepare("SELECT COUNT(*) FROM broadcast_campaigns WHERE owner_tg_id = ?"); $s3->execute([$ownerId]);
+    $s4 = $pdo->prepare("SELECT COALESCE(SUM(sent_count),0) FROM broadcast_campaigns WHERE owner_tg_id = ?"); $s4->execute([$ownerId]);
+
     return [
-        'accounts'  => (int)$pdo->query("SELECT COUNT(*) FROM tg_accounts WHERE status='active'")->fetchColumn(),
-        'contacts'  => (int)$pdo->query("SELECT COUNT(*) FROM broadcast_contacts WHERE is_active=1")->fetchColumn(),
-        'campaigns' => (int)$pdo->query("SELECT COUNT(*) FROM broadcast_campaigns")->fetchColumn(),
-        'sent'      => (int)$pdo->query("SELECT COALESCE(SUM(sent_count),0) FROM broadcast_campaigns")->fetchColumn(),
+        'accounts'  => (int)$s1->fetchColumn(),
+        'contacts'  => (int)$s2->fetchColumn(),
+        'campaigns' => (int)$s3->fetchColumn(),
+        'sent'      => (int)$s4->fetchColumn(),
     ];
 }
 
 // ── Text builders (Markdown) ─────────────────────────
 
-function mainMenuText(): string
+function mainMenuText(int $ownerId): string
 {
-    $s = getStats();
+    $s = getStats($ownerId);
     return
         "📡 *ProTel Broadcast System*\n" .
         "━━━━━━━━━━━━━━━━━━\n" .

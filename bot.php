@@ -20,7 +20,6 @@ use ProTel\Conversations\AddContactConversation;
 
 // Bootstrap
 require_once __DIR__ . '/vendor/autoload.php';
-require_once __DIR__ . '/config/app.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/bot/BotHelper.php';
 require_once __DIR__ . '/bot/Keyboards.php';
@@ -28,8 +27,8 @@ require_once __DIR__ . '/bot/Conversations/AddAccountConversation.php';
 require_once __DIR__ . '/bot/Conversations/BroadcastConversation.php';
 require_once __DIR__ . '/bot/Conversations/AddContactConversation.php';
 
-if (empty(BOT_TOKEN)) {
-    die("❌ BOT_TOKEN belum diisi di config/app.php!\n");
+if (!defined('BOT_TOKEN') || empty(BOT_TOKEN)) {
+    die("❌ BOT_TOKEN belum di-define sebelum memuat bot.php!\n");
 }
 
 // Persistent cache untuk conversation state
@@ -61,9 +60,9 @@ $bot->middleware(function (Nutgram $bot, $next) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 $bot->onCommand('start', function (Nutgram $bot) {
-    $name = $bot->user()?->first_name ?? 'Admin';
+    $name = $bot->user()?->first_name ?? 'User';
     $bot->sendMessage(
-        "Halo *{$name}\\!* 👋\n\n" . mainMenuText(),
+        "Halo *{$name}\\!* 👋\n\n" . mainMenuText($bot->userId()),
         parse_mode: 'MarkdownV2',
         reply_markup: Keyboards::mainMenu()
     );
@@ -93,7 +92,7 @@ $bot->onCommand('help', function (Nutgram $bot) {
 // Main Menu
 $bot->onCallbackQueryData('menu', function (Nutgram $bot) {
     $bot->editMessageText(
-        mainMenuText(),
+        mainMenuText($bot->userId()),
         parse_mode: 'MarkdownV2',
         reply_markup: Keyboards::mainMenu()
     );
@@ -103,7 +102,7 @@ $bot->onCallbackQueryData('menu', function (Nutgram $bot) {
 // ── ACCOUNTS ────────────────────────────────────────────────────────────────
 
 $bot->onCallbackQueryData('accounts', function (Nutgram $bot) {
-    $accounts = getAccounts();
+    $accounts = getAccounts($bot->userId());
     $bot->editMessageText(
         accountsText($accounts),
         parse_mode: 'Markdown',
@@ -122,8 +121,8 @@ $bot->onCallbackQueryData('acc_del:.*', function (Nutgram $bot) {
     $id  = (int)explode(':', $bot->callbackQuery()->data)[1];
     $pdo = getDB();
 
-    $stmt = $pdo->prepare("SELECT phone, session_file FROM tg_accounts WHERE id = ?");
-    $stmt->execute([$id]);
+    $stmt = $pdo->prepare("SELECT phone, session_file FROM tg_accounts WHERE id = ? AND owner_tg_id = ?");
+    $stmt->execute([$id, $bot->userId()]);
     $acc = $stmt->fetch();
 
     if ($acc) {
@@ -131,7 +130,7 @@ $bot->onCallbackQueryData('acc_del:.*', function (Nutgram $bot) {
         foreach (glob($sf . '*') ?: [] as $f) @unlink($f);
         $pdo->prepare("DELETE FROM tg_accounts WHERE id = ?")->execute([$id]);
 
-        $accounts = getAccounts();
+        $accounts = getAccounts($bot->userId());
         $bot->editMessageText(
             "🗑 Akun `{$acc['phone']}` dihapus\\.\n\n" . accountsText($accounts),
             parse_mode: 'MarkdownV2',
@@ -147,7 +146,7 @@ $bot->onCallbackQueryData('acc_noop', fn(Nutgram $bot) => $bot->answerCallbackQu
 // ── CONTACTS ────────────────────────────────────────────────────────────────
 
 $bot->onCallbackQueryData('contacts', function (Nutgram $bot) {
-    $groups = getContactGroups();
+    $groups = getContactGroups($bot->userId());
     $bot->editMessageText(
         contactsText($groups),
         parse_mode: 'Markdown',
@@ -177,11 +176,11 @@ $bot->onCallbackQueryData('ctc_group:.*', function (Nutgram $bot) {
     $encoded = substr($bot->callbackQuery()->data, strlen('ctc_group:'));
     $group   = base64_decode($encoded);
     $pdo     = getDB();
-    $stmt    = $pdo->prepare("SELECT * FROM broadcast_contacts WHERE group_name = ? AND is_active=1 ORDER BY added_at DESC LIMIT 20");
-    $stmt->execute([$group]);
+    $stmt    = $pdo->prepare("SELECT * FROM broadcast_contacts WHERE group_name = ? AND is_active=1 AND owner_tg_id=? ORDER BY added_at DESC LIMIT 20");
+    $stmt->execute([$group, $bot->userId()]);
     $rows    = $stmt->fetchAll();
-    $total   = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE group_name = ? AND is_active=1");
-    $total->execute([$group]);
+    $total   = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE group_name = ? AND is_active=1 AND owner_tg_id=?");
+    $total->execute([$group, $bot->userId()]);
     $count = (int)$total->fetchColumn();
 
     $text = "📁 *Grup: {$group}* — {$count} kontak\n━━━━━━━━━━━━━━━━━━\n";
@@ -201,9 +200,8 @@ $bot->onCallbackQueryData('ctc_group:.*', function (Nutgram $bot) {
 $bot->onCallbackQueryData('ctc_del_confirm:.*', function (Nutgram $bot) {
     $group = base64_decode(substr($bot->callbackQuery()->data, strlen('ctc_del_confirm:')));
     $pdo   = getDB();
-    $cnt   = (int)$pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE group_name = ?")->execute([$group]) && 1;
-    $stmt  = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE group_name = ?");
-    $stmt->execute([$group]);
+    $stmt  = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE group_name = ? AND owner_tg_id = ?");
+    $stmt->execute([$group, $bot->userId()]);
     $cnt   = (int)$stmt->fetchColumn();
 
     $bot->editMessageText(
@@ -218,11 +216,11 @@ $bot->onCallbackQueryData('ctc_del_confirm:.*', function (Nutgram $bot) {
 $bot->onCallbackQueryData('ctc_del_do:.*', function (Nutgram $bot) {
     $group = base64_decode(substr($bot->callbackQuery()->data, strlen('ctc_del_do:')));
     $pdo   = getDB();
-    $stmt  = $pdo->prepare("DELETE FROM broadcast_contacts WHERE group_name = ?");
-    $stmt->execute([$group]);
+    $stmt  = $pdo->prepare("DELETE FROM broadcast_contacts WHERE group_name = ? AND owner_tg_id = ?");
+    $stmt->execute([$group, $bot->userId()]);
     $deleted = $stmt->rowCount();
 
-    $groups = getContactGroups();
+    $groups = getContactGroups($bot->userId());
     $bot->editMessageText(
         "✅ Grup *{$group}* dihapus \\({$deleted} kontak\\)\\.\n\n" . contactsText($groups),
         parse_mode: 'MarkdownV2',
@@ -245,7 +243,7 @@ $bot->onCallbackQueryData('broadcast_start', function (Nutgram $bot) {
 // ── HISTORY ─────────────────────────────────────────────────────────────────
 
 $bot->onCallbackQueryData('history', function (Nutgram $bot) {
-    $campaigns = getCampaigns();
+    $campaigns = getCampaigns($bot->userId());
     $bot->editMessageText(
         historyText($campaigns),
         parse_mode: 'Markdown',
@@ -258,8 +256,8 @@ $bot->onCallbackQueryData('history', function (Nutgram $bot) {
 $bot->onCallbackQueryData('camp_detail:.*', function (Nutgram $bot) {
     $id   = (int)explode(':', $bot->callbackQuery()->data)[1];
     $pdo  = getDB();
-    $stmt = $pdo->prepare("SELECT * FROM broadcast_campaigns WHERE id = ?");
-    $stmt->execute([$id]);
+    $stmt = $pdo->prepare("SELECT * FROM broadcast_campaigns WHERE id = ? AND owner_tg_id = ?");
+    $stmt->execute([$id, $bot->userId()]);
     $c  = $stmt->fetch();
     if (!$c) { $bot->answerCallbackQuery(text: 'Campaign tidak ditemukan'); return; }
 
@@ -300,11 +298,12 @@ $bot->onCallbackQueryData('camp_detail:.*', function (Nutgram $bot) {
 $bot->onCallbackQueryData('camp_pause:.*', function (Nutgram $bot) {
     $id  = (int)explode(':', $bot->callbackQuery()->data)[1];
     $pdo = getDB();
-    $stmt = $pdo->prepare("SELECT status FROM broadcast_campaigns WHERE id = ?");
-    $stmt->execute([$id]);
+    $stmt = $pdo->prepare("SELECT status FROM broadcast_campaigns WHERE id = ? AND owner_tg_id = ?");
+    $stmt->execute([$id, $bot->userId()]);
     $current = $stmt->fetchColumn();
+    if (!$current) return;
     $new = ($current === 'running') ? 'paused' : 'running';
-    $pdo->prepare("UPDATE broadcast_campaigns SET status=? WHERE id=?")->execute([$new, $id]);
+    $pdo->prepare("UPDATE broadcast_campaigns SET status=? WHERE id=? AND owner_tg_id=?")->execute([$new, $id, $bot->userId()]);
     $label = $new === 'paused' ? '⏸ Campaign dijeda' : '▶️ Campaign dilanjutkan';
     $bot->answerCallbackQuery(text: $label, show_alert: true);
 
@@ -344,7 +343,7 @@ $bot->onDocument(function (Nutgram $bot) {
 
     $group   = $bot->message()->caption ?: ('Import ' . date('d/m/Y H:i'));
     $pdo     = getDB();
-    $stmt    = $pdo->prepare("INSERT IGNORE INTO broadcast_contacts (phone, username, display_name, group_name) VALUES (?,?,?,?)");
+    $stmt    = $pdo->prepare("INSERT IGNORE INTO broadcast_contacts (owner_tg_id, phone, username, display_name, group_name) VALUES (?,?,?,?,?)");
     $lines   = explode("\n", trim($csvData));
     $count   = 0;
     $skipped = 0;
@@ -361,14 +360,14 @@ $bot->onDocument(function (Nutgram $bot) {
         $uname = ltrim(trim($row[2] ?? ''), '@');
 
         if ($phone || $uname) {
-            $stmt->execute([$phone ?: null, $uname ?: null, $name, $group]);
+            $stmt->execute([$bot->userId(), $phone ?: null, $uname ?: null, $name, $group]);
             $count++;
         } else {
             $skipped++;
         }
     }
 
-    $groups = getContactGroups();
+    $groups = getContactGroups($bot->userId());
     $bot->sendMessage(
         "✅ *Import Selesai\\!*\n\n" .
         "Ditambahkan: `{$count}` kontak\n" .
@@ -385,7 +384,7 @@ $bot->onDocument(function (Nutgram $bot) {
 
 $bot->fallback(function (Nutgram $bot) {
     // Hanya tampilkan menu jika bukan sedang dalam conversation
-    $name = $bot->user()?->first_name ?? 'Admin';
+    $name = $bot->user()?->first_name ?? 'User';
     $bot->sendMessage(
         "Halo *{$name}\\!* Gunakan menu di bawah atau ketik /help\\.",
         parse_mode: 'MarkdownV2',

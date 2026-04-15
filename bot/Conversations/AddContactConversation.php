@@ -85,8 +85,8 @@ class AddContactConversation extends Conversation
 
         try {
             $pdo  = getDB();
-            $stmt = $pdo->prepare("INSERT INTO broadcast_contacts (phone, username, display_name, group_name) VALUES (?,?,?,?)");
-            $stmt->execute([$this->phone ?: null, $this->username ?: null, $this->name, $this->group]);
+            $stmt = $pdo->prepare("INSERT INTO broadcast_contacts (owner_tg_id, phone, username, display_name, group_name) VALUES (?,?,?,?,?)");
+            $stmt->execute([$bot->userId(), $this->phone ?: null, $this->username ?: null, $this->name, $this->group]);
 
             $info = implode(', ', array_filter([$this->phone, $this->username ? '@'.$this->username : null, $this->name]));
             $bot->sendMessage(

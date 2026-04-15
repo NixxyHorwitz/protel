@@ -28,7 +28,7 @@ class BroadcastConversation extends Conversation
     // ── Step 1: Minta pesan ──────────────────────────────
     public function start(Nutgram $bot): void
     {
-        $accounts = getAccounts();
+        $accounts = getAccounts($bot->userId());
         $active   = array_filter($accounts, fn($a) => $a['status'] === 'active');
 
         if (empty($active)) {
@@ -78,7 +78,7 @@ class BroadcastConversation extends Conversation
         }
 
         // Tampilkan pilihan grup
-        $groups = getContactGroups();
+        $groups = getContactGroups($bot->userId());
         if (empty($groups)) {
             $bot->sendMessage(
                 "❌ Tidak ada kontak tersimpan\\! Tambahkan kontak dulu\\.",
@@ -113,17 +113,19 @@ class BroadcastConversation extends Conversation
         // Hitung kontak
         $pdo = getDB();
         if ($this->targetGroup === '') {
-            $this->targetCount = (int)$pdo->query("SELECT COUNT(*) FROM broadcast_contacts WHERE is_active=1")->fetchColumn();
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE owner_tg_id=? AND is_active=1");
+            $stmt->execute([$bot->userId()]);
+            $this->targetCount = (int)$stmt->fetchColumn();
         } else {
-            $stmt = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE group_name = ? AND is_active=1");
-            $stmt->execute([$this->targetGroup]);
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM broadcast_contacts WHERE group_name = ? AND owner_tg_id=? AND is_active=1");
+            $stmt->execute([$this->targetGroup, $bot->userId()]);
             $this->targetCount = (int)$stmt->fetchColumn();
         }
 
         $groupLabel = $this->targetGroup ?: 'Semua Kontak';
 
         // Tampilkan pilihan akun
-        $accounts = array_filter(getAccounts(), fn($a) => $a['status'] === 'active');
+        $accounts = array_filter(getAccounts($bot->userId()), fn($a) => $a['status'] === 'active');
         $bot->editMessageText(
             "👤 *Pilih Akun Pengirim:*\n_(centang yang ingin digunakan)_\n\nTarget: *{$groupLabel}* — `{$this->targetCount}` kontak",
             chat_id: $bot->callbackQuery()->message->chat->id,
@@ -149,7 +151,7 @@ class BroadcastConversation extends Conversation
                 $this->selectedAccs[] = $id;
             }
             // Refresh keyboard
-            $accounts = array_filter(getAccounts(), fn($a) => $a['status'] === 'active');
+            $accounts = array_filter(getAccounts($bot->userId()), fn($a) => $a['status'] === 'active');
             $bot->editMessageReplyMarkup(
                 chat_id: $cbq->message->chat->id,
                 message_id: $cbq->message->message_id,
@@ -159,7 +161,7 @@ class BroadcastConversation extends Conversation
         }
 
         if ($data === 'bc_acc_all') {
-            $accounts = array_filter(getAccounts(), fn($a) => $a['status'] === 'active');
+            $accounts = array_filter(getAccounts($bot->userId()), fn($a) => $a['status'] === 'active');
             $this->selectedAccs = array_column(array_values($accounts), 'id');
             $bot->editMessageReplyMarkup(
                 chat_id: $cbq->message->chat->id,
@@ -171,7 +173,7 @@ class BroadcastConversation extends Conversation
 
         if ($data === 'bc_acc_none') {
             $this->selectedAccs = [];
-            $accounts = array_filter(getAccounts(), fn($a) => $a['status'] === 'active');
+            $accounts = array_filter(getAccounts($bot->userId()), fn($a) => $a['status'] === 'active');
             $bot->editMessageReplyMarkup(
                 chat_id: $cbq->message->chat->id,
                 message_id: $cbq->message->message_id,
@@ -250,28 +252,31 @@ class BroadcastConversation extends Conversation
         // Buat campaign
         $pdo      = getDB();
         $campName = 'Bot Broadcast ' . date('d/m/Y H:i');
-        $pdo->prepare("INSERT INTO broadcast_campaigns (name, message_text, media_type, delay_seconds) VALUES (?, ?, 'none', ?)")
-            ->execute([$campName, $this->messageText, $this->delaySec]);
+        $pdo->prepare("INSERT INTO broadcast_campaigns (owner_tg_id, name, message_text, media_type, delay_seconds) VALUES (?, ?, ?, 'none', ?)")
+            ->execute([$bot->userId(), $campName, $this->messageText, $this->delaySec]);
         $campId = (int)$pdo->lastInsertId();
 
         // Ambil kontak
         if ($this->targetGroup === '') {
-            $contacts = $pdo->query("SELECT * FROM broadcast_contacts WHERE is_active=1")->fetchAll(\PDO::FETCH_ASSOC);
+            $stmt = $pdo->prepare("SELECT * FROM broadcast_contacts WHERE owner_tg_id=? AND is_active=1");
+            $stmt->execute([$bot->userId()]);
+            $contacts = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         } else {
-            $stmt = $pdo->prepare("SELECT * FROM broadcast_contacts WHERE group_name=? AND is_active=1");
-            $stmt->execute([$this->targetGroup]);
+            $stmt = $pdo->prepare("SELECT * FROM broadcast_contacts WHERE group_name=? AND owner_tg_id=? AND is_active=1");
+            $stmt->execute([$this->targetGroup, $bot->userId()]);
             $contacts = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         }
 
         // Ambil akun
         $in   = implode(',', array_map('intval', $this->selectedAccs));
-        $accs = $pdo->query("SELECT * FROM tg_accounts WHERE id IN ({$in}) AND status='active'")->fetchAll(\PDO::FETCH_ASSOC);
+        $stmt = $pdo->prepare("SELECT * FROM tg_accounts WHERE id IN ({$in}) AND owner_tg_id=? AND status='active'");
+        $stmt->execute([$bot->userId()]);
+        $accs = $stmt->fetchAll(\PDO::FETCH_ASSOC);
 
-        $pdo->prepare("UPDATE broadcast_campaigns SET status='running', started_at=NOW(), total_target=? WHERE id=?")
-            ->execute([count($contacts), $campId]);
+        $pdo->prepare("UPDATE broadcast_campaigns SET status='running', started_at=NOW(), total_target=? WHERE id=? AND owner_tg_id=?")
+            ->execute([count($contacts), $campId, $bot->userId()]);
 
         // Insert log entries (round-robin)
-        $logStmt  = $pdo->prepare("INSERT INTO broadcast_logs (campaign_id, account_id, contact_id, recipient, status) VALUES (?,?,?,'pending','?')");
         $logStmt  = $pdo->prepare("INSERT INTO broadcast_logs (campaign_id, account_id, contact_id, recipient, status) VALUES (?,?,?,?,'pending')");
         $accCount = count($accs);
         foreach ($contacts as $i => $c) {

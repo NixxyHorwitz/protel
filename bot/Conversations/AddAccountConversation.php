@@ -90,7 +90,7 @@ class AddAccountConversation extends Conversation
         $result = runScript(__DIR__ . '/../../scripts/verify_otp.php', [$this->phone, $code]);
 
         if ($result['success'] ?? false) {
-            saveAccountToDB($this->phone, $result);
+            saveAccountToDB($bot->userId(), $this->phone, $result);
             $name = trim(($result['first_name'] ?? '') . ' ' . ($result['last_name'] ?? ''));
             $bot->sendMessage(
                 "🎉 *Berhasil\\!*\n\n" .
@@ -130,7 +130,7 @@ class AddAccountConversation extends Conversation
         $result = runScript(__DIR__ . '/../../scripts/verify_2fa.php', [$this->phone, $password]);
 
         if ($result['success'] ?? false) {
-            saveAccountToDB($this->phone, $result);
+            saveAccountToDB($bot->userId(), $this->phone, $result);
             $name = trim(($result['first_name'] ?? '') . ' ' . ($result['last_name'] ?? ''));
             $bot->sendMessage(
                 "🎉 *Berhasil\\!* Akun *{$name}* ditambahkan ke sistem\\!",
