@@ -29,6 +29,9 @@ define('ADMIN_IDS', []);
 
 try {
     $bot = require __DIR__ . '/bot.php';
+    
+    // Hardcode instance Webhook mode untuk membypass error DI Container
+    $bot->setRunningMode(new \SergiX44\Nutgram\RunningMode\Webhook());
     $bot->run();
 } catch (Throwable $e) {
     // Catat error ke log server, tapi tetap return 200 ke Telegram
