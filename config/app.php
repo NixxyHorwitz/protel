@@ -24,4 +24,9 @@ foreach ([SESSION_DIR, STORAGE_DIR] as $_dir) {
     if (!is_dir($_dir)) mkdir($_dir, 0755, true);
 }
 
-session_start();
+// session_start hanya untuk konteks web (bukan webhook atau CLI)
+if (PHP_SAPI !== 'cli' && !defined('BOT_WEBHOOK_MODE')) {
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+}
