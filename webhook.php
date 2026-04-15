@@ -29,7 +29,7 @@ define('ADMIN_IDS', []);
 
 try {
     $bot = require __DIR__ . '/bot.php';
-    $bot->run(\SergiX44\Nutgram\RunningMode\Webhook::class);
+    $bot->run();
 } catch (Throwable $e) {
     // Catat error ke log server, tapi tetap return 200 ke Telegram
     error_log('[ProTel Webhook] FATAL: ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
