@@ -16,12 +16,6 @@ class AddContactConversation extends Conversation
     public ?string $name     = null;
     public ?string $group    = 'Default';
 
-    public function __invoke(Nutgram $bot, ...$parameters): mixed
-    {
-        $this->start($bot);
-        return null;
-    }
-
     public function start(Nutgram $bot): void
     {
         $bot->sendMessage(
