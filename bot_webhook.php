@@ -5,6 +5,22 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
     require_once __DIR__ . '/vendor/autoload.php';
 }
 
+// ─── Temp State Helper ────────────────────────────────────────────────────────
+function getTempState(int|string $from_id): ?array {
+    $f = __DIR__ . "/sessions/state_{$from_id}.json";
+    return file_exists($f) ? json_decode(file_get_contents($f), true) : null;
+}
+
+function setTempState(int|string $from_id, ?string $status, string $phone = ''): void {
+    if (!is_dir(__DIR__ . '/sessions')) mkdir(__DIR__ . '/sessions', 0777, true);
+    $f = __DIR__ . "/sessions/state_{$from_id}.json";
+    if ($status === null) {
+        if (file_exists($f)) @unlink($f);
+    } else {
+        file_put_contents($f, json_encode(['status' => $status, 'phone_number' => $phone]));
+    }
+}
+
 // ─── Telegram API Helper ──────────────────────────────────────────────────────
 function tg(string $method, array $params): ?array {
     global $pdo;
@@ -66,7 +82,7 @@ register_shutdown_function(function() use (&$current_chat_id) {
     if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
         write_log('FATAL_ERROR', "{$error['message']} in {$error['file']}:{$error['line']}");
         if ($current_chat_id) {
-            sendMessage($current_chat_id, "❌ <b>Sistem Timeout / Crash!</b>\nProses memakan waktu terlalu lama. Hal ini sering terjadi karena enkripsi lambat. Silakan hubungi admin.");
+            sendMessage($current_chat_id, "❌ <b>Sistem Timeout / Crash!</b>\nProses memakan waktu terlalu lama. Hal ini sering terjadi karena koneksi Telegram. Coba ulangi kembali.");
         }
     }
 });
@@ -74,7 +90,6 @@ register_shutdown_function(function() use (&$current_chat_id) {
 // ─── Input Payload ────────────────────────────────────────────────────────────
 $input = file_get_contents('php://input');
 if (!$input) { http_response_code(200); exit('OK'); }
-
 $update = json_decode($input, true);
 if (!$update) { http_response_code(200); exit('OK'); }
 
@@ -91,7 +106,7 @@ function menuDashboard(): array {
     ];
 }
 
-function processUpdateUser($from_id, $first_name, $username) {
+function processUpdateUser($from_id, $first_name) {
     global $pdo;
     $stmt = $pdo->prepare("INSERT IGNORE INTO users (telegram_id, name) VALUES (?, ?)");
     $stmt->execute([$from_id, $first_name]);
@@ -108,7 +123,7 @@ if (isset($update['callback_query'])) {
     $from_id = $cb['from']['id'];
     global $current_chat_id; $current_chat_id = $chat_id;
 
-    $stmt = processUpdateUser($from_id, $cb['from']['first_name']??'', '');
+    $stmt = processUpdateUser($from_id, $cb['from']['first_name']??'');
     $stmt->execute([$from_id]);
     $user = $stmt->fetch();
 
@@ -118,24 +133,24 @@ if (isset($update['callback_query'])) {
     switch ($cmd) {
         case 'dashboard':
             answerCallback($cb_id);
+            setTempState($from_id, null); // Clear temp state
             $msg = "⚡️ <b>ProTel Dashboard</b>\n\nPilih menu operasi di bawah ini:";
             editMessage($chat_id, $msg_id, $msg, menuDashboard());
-            // Reset any pending session for safety
-            $pdo->prepare("DELETE FROM user_sessions WHERE telegram_id = ? AND status = 'pending'")->execute([$from_id]);
+            // Cleanup any ghost pending sessions from mysql if any were left over from old logic
+            $pdo->prepare("DELETE FROM user_sessions WHERE telegram_id = ? AND status IN ('pending', 'wait_otp', 'wait_password')")->execute([$from_id]);
             break;
 
         case 'accounts':
             answerCallback($cb_id);
-            $sess_stmt = $pdo->prepare("SELECT * FROM user_sessions WHERE telegram_id = ? AND status != 'pending'");
+            $sess_stmt = $pdo->prepare("SELECT * FROM user_sessions WHERE telegram_id = ? AND status = 'active'");
             $sess_stmt->execute([$from_id]);
             $sessions = $sess_stmt->fetchAll();
 
             $msg = "📱 <b>Akun Terhubung:</b> <code>" . count($sessions) . " / " . $user['max_sessions'] . "</code>\n\n";
             $kb = [];
             foreach ($sessions as $i => $s) {
-                $icon = match($s['status']) { 'active'=>'✅', 'wait_otp'=>'🔑','wait_password'=>'🔒', 'banned'=>'🚫', default=>'❓' };
+                $icon = match($s['status']) { 'active'=>'✅', 'banned'=>'🚫', default=>'❓' };
                 $msg .= ($i+1) . ". {$icon} <code>" . htmlspecialchars($s['phone_number']) . "</code> - " . ucfirst($s['status']) . "\n";
-                // Add button to manage this account
                 $kb[] = [['text' => "⚙️ Kelola " . $s['phone_number'], 'callback_data' => "manage_acc:{$s['id']}"]];
             }
             if (count($sessions) < $user['max_sessions']) {
@@ -164,58 +179,76 @@ if (isset($update['callback_query'])) {
             
         case 'delete_acc':
             $acc_id = $args[1] ?? 0;
-            $pdo->prepare("DELETE FROM user_sessions WHERE id = ? AND telegram_id = ?")->execute([$acc_id, $from_id]);
-            answerCallback($cb_id, "Akun berhasil dihapus!", true);
-            // Auto back to accounts
+            $s = $pdo->prepare("SELECT phone_number FROM user_sessions WHERE id = ? AND telegram_id = ?");
+            $s->execute([$acc_id, $from_id]);
+            $acc_phone = $s->fetchColumn();
+
+            if ($acc_phone) {
+                // Remove madeline session file cleanly
+                $safe_phone = preg_replace('/[^0-9]/', '', $acc_phone);
+                $sessionPath = __DIR__ . "/sessions/session_{$from_id}_{$safe_phone}.madeline";
+                @unlink($sessionPath);
+                $pdo->prepare("DELETE FROM user_sessions WHERE id = ?")->execute([$acc_id]);
+                answerCallback($cb_id, "Akun berhasil dihapus dan dilogout!", true);
+            }
+            $cb['data'] = 'accounts'; goto redispatch;
+            break;
+
+        case 'cancel_add':
+            answerCallback($cb_id, "Penambahan akun dibatalkan", true);
+            setTempState($from_id, null);
             $cb['data'] = 'accounts'; goto redispatch;
             break;
 
         case 'add_acc':
+            // Check limitations first
+            $sess_stmt = $pdo->prepare("SELECT COUNT(*) FROM user_sessions WHERE telegram_id = ? AND status = 'active'");
+            $sess_stmt->execute([$from_id]);
+            if ($sess_stmt->fetchColumn() >= $user['max_sessions']) {
+                answerCallback($cb_id, "Limit akun paket Anda penuh!", true);
+                break;
+            }
             answerCallback($cb_id);
             $msg = "📱 <b>Menambah Nomor Baru</b>\n\nKirimkan nomor HP Telegram kamu dengan format internasional (Contoh: <code>+628123xxxx</code>).";
-            $kb = [[['text' => '🔙 Batal', 'callback_data' => 'dashboard']]];
+            $kb = [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]];
             
-            // Delete old pending
-            $pdo->prepare("DELETE FROM user_sessions WHERE telegram_id = ? AND status = 'pending'")->execute([$from_id]);
-            // Insert new pending
-            $pdo->prepare("INSERT INTO user_sessions (telegram_id, phone_number, status) VALUES (?, '', 'pending')")->execute([$from_id]);
+            // Set temporary state to JSON! We don't save to database yet!
+            setTempState($from_id, 'pending', '');
             
             editMessage($chat_id, $msg_id, $msg, ['inline_keyboard' => $kb]);
             break;
 
         case 'resend_otp':
-            $acc_id = $args[1] ?? 0;
-            $s = $pdo->prepare("SELECT * FROM user_sessions WHERE id = ? AND telegram_id = ?");
-            $s->execute([$acc_id, $from_id]);
-            $acc = $s->fetch();
-            if (!$acc || $acc['status'] !== 'wait_otp') {
-                answerCallback($cb_id, "Sesi tidak valid.", true); break;
+            $state = getTempState($from_id);
+            if (!$state || $state['status'] !== 'wait_otp') {
+                answerCallback($cb_id, "Sesi tidak valid / Kadaluarsa.", true); break;
             }
             answerCallback($cb_id, "Meminta OTP ulang...");
             try {
-                $API = getMadeline($from_id, $acc['phone_number']);
-                $API->phoneLogin($acc['phone_number']);
+                $API = getMadeline($from_id, $state['phone_number']);
+                $API->phoneLogin($state['phone_number']);
                 editMessage($chat_id, $msg_id, "📩 <b>OTP Dikirim Ulang!</b>\n\nCek aplikasi Telegrammu.\n\nKetik langsung kode OTP nya (bebas saja formatnya).", [
-                    'inline_keyboard' => [[['text' => '🔙 Batal Login', 'callback_data' => "delete_acc:{$acc['id']}"]]]
+                    'inline_keyboard' => [[['text' => '🔙 Batal Login', 'callback_data' => "cancel_add"]]]
                 ]);
             } catch (\Exception $e) {
                 editMessage($chat_id, $msg_id, "❌ <b>Gagal Resend OTP</b>\n\n<code>{$e->getMessage()}</code>", [
-                    'inline_keyboard' => [[['text' => '🔙 Kembali', 'callback_data' => 'accounts']]]
+                    'inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]
                 ]);
             }
             break;
 
         case 'broadcast_menu':
             answerCallback($cb_id);
+            setTempState($from_id, null);
             $sess_stmt = $pdo->prepare("SELECT b.*, s.phone_number FROM broadcasts b JOIN user_sessions s ON b.session_id = s.id WHERE s.telegram_id = ? ORDER BY b.id DESC LIMIT 5");
             $sess_stmt->execute([$from_id]);
             $bcasts = $sess_stmt->fetchAll();
 
             $msg = "📢 <b>Broadcast Terakhir</b>\n\n";
-            $kb = [[['text' => '➕ Buat Broadcast Baru', 'callback_data' => 'new_broadcast']]];
+            $kb = [[['text' => '➕ Buat Broadcast Baru (Di Web)', 'url' => 'https://protel.nixstore.web.id/console']]];
             
             if (empty($bcasts)) {
-                $msg .= "<i>Belum ada task broadcast.</i>";
+                $msg .= "<i>Belum ada task broadcast. Buat task di web Admin.</i>";
             } else {
                 foreach($bcasts as $b) {
                     $pct = $b['target_count'] > 0 ? floor(($b['sent_count']/$b['target_count'])*100) : 0;
@@ -246,6 +279,7 @@ if (isset($update['callback_query'])) {
 
         case 'contacts_menu':
             answerCallback($cb_id, "Fitur Import Kontak", false);
+            setTempState($from_id, null);
             // Count total contacts
             $c = $pdo->prepare("SELECT COUNT(*) FROM contacts WHERE session_id IN (SELECT id FROM user_sessions WHERE telegram_id = ?)");
             $c->execute([$from_id]);
@@ -291,11 +325,12 @@ if (isset($update['message'])) {
     $text    = trim($msg['text'] ?? '');
     global $current_chat_id; $current_chat_id = $chat_id;
 
-    $stmt = processUpdateUser($from_id, $msg['from']['first_name']??'', '');
+    $stmt = processUpdateUser($from_id, $msg['from']['first_name']??'');
     $stmt->execute([$from_id]);
     $user = $stmt->fetch();
 
     if ($text === '/start' || $text === '/menu' || $text === '/dashboard') {
+        setTempState($from_id, null);
         $name = $msg['from']['first_name'] ?? 'Pengguna';
         $w = $settings['welcome_message'] ?? "Halo {name}!";
         $txt = str_replace('{name}', htmlspecialchars($name), $w);
@@ -303,10 +338,8 @@ if (isset($update['message'])) {
         http_response_code(200); exit;
     }
     
-    // Check pending session states (only the most recently modified pending/wait_otp/wait_password row)
-    $s_stmt = $pdo->prepare("SELECT * FROM user_sessions WHERE telegram_id = ? AND status IN ('pending', 'wait_otp', 'wait_password') ORDER BY updated_at DESC LIMIT 1");
-    $s_stmt->execute([$from_id]);
-    $session = $s_stmt->fetch();
+    // Check Temporary JSON State!!
+    $state = getTempState($from_id);
 
     // Import contact trigger via document upload
     if (isset($msg['document']) && in_array($msg['document']['mime_type'], ['text/plain', 'text/csv'])) {
@@ -344,14 +377,14 @@ if (isset($update['message'])) {
         http_response_code(200); exit;
     }
 
-    if (!$session) {
-        // Just delete message or ignore to reduce spam
+    if (!$state) {
+        // Not in any queue
         sendMessage($chat_id, "Pesan tidak dikenali atau anda tidak sedang dalam antrian perintah. Klik /menu");
         http_response_code(200); exit;
     }
 
     // STATE: PENDING (Waiting for Phone Number)
-    if ($session['status'] === 'pending' && preg_match('/^\+?[0-9\s\-]+$/', $text)) {
+    if ($state['status'] === 'pending' && preg_match('/^\+?[0-9\s\-]+$/', $text)) {
         $phone = preg_replace('/[^0-9+]/', '', $text);
         if (str_starts_with($phone, '08')) $phone = '+62' . substr($phone, 1);
         elseif (str_starts_with($phone, '62') && !str_starts_with($phone, '+')) $phone = '+' . $phone;
@@ -362,15 +395,16 @@ if (isset($update['message'])) {
             $API = getMadeline($from_id, $phone);
             $API->phoneLogin($phone);
             
-            $pdo->prepare("UPDATE user_sessions SET phone_number = ?, status = 'wait_otp' WHERE id = ?")->execute([$phone, $session['id']]);
+            // Advance temp state to wait_otp
+            setTempState($from_id, 'wait_otp', $phone);
 
             editMessage($chat_id, $msg_sent['result']['message_id'],
                 "📩 <b>Kode OTP Telah Dikirim!</b>\n\n".
                 "Telegram mengirimkan pesan OTP ke aplikasimu.\n\n".
                 "👉 <b>Ketik saja kode kamu di sini secara utuh juga bisa!</b> (Filter kami akan merapikannya otomatis)",
                 ['inline_keyboard' => [
-                    [['text' => '🔁 Resend OTP', 'callback_data' => "resend_otp:{$session['id']}"]],
-                    [['text' => '🔙 Batal', 'callback_data' => "delete_acc:{$session['id']}"]]
+                    [['text' => '🔁 Resend OTP', 'callback_data' => "resend_otp"]],
+                    [['text' => '🔙 Batal', 'callback_data' => "cancel_add"]]
                 ]]
             );
         } catch (\Exception $e) {
@@ -383,7 +417,7 @@ if (isset($update['message'])) {
     }
 
     // STATE: WAIT_OTP
-    if ($session['status'] === 'wait_otp') {
+    if ($state['status'] === 'wait_otp') {
         $otp = preg_replace('/[^0-9]/', '', $text); // Extrak HANYA angka
         if (empty($otp)) {
             sendMessage($chat_id, "❌ OTP harus mengandung angka. Coba lagi.");
@@ -393,29 +427,36 @@ if (isset($update['message'])) {
         $msg_sent = sendMessage($chat_id, "🔄 <i>Memverifikasi OTP: $otp...</i>");
         
         try {
-            $API = getMadeline($from_id, $session['phone_number']);
+            $API = getMadeline($from_id, $state['phone_number']);
             $API->completePhoneLogin($otp);
-            $pdo->prepare("UPDATE user_sessions SET status = 'active' WHERE id = ?")->execute([$session['id']]);
+            // OTP SUCCESS! Insert into database definitively as ACTIVE!
+            $pdo->prepare("INSERT INTO user_sessions (telegram_id, phone_number, status) VALUES (?, ?, 'active')")->execute([$from_id, $state['phone_number']]);
+            setTempState($from_id, null); // remove from temp state
+            
             editMessage($chat_id, $msg_sent['result']['message_id'], "✅ <b>Berhasil!</b> Akun terhubung.", ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]);
         } catch (\danog\MadelineProto\Exception\Require2FAException $e) {
-            $pdo->prepare("UPDATE user_sessions SET status = 'wait_password' WHERE id = ?")->execute([$session['id']]);
+            // Needs 2FA, advance state
+            setTempState($from_id, 'wait_password', $state['phone_number']);
             editMessage($chat_id, $msg_sent['result']['message_id'], "🔐 <b>Akun di-2FA.</b>\nKirimkan password kamu:");
         } catch (\Exception $e) {
-            editMessage($chat_id, $msg_sent['result']['message_id'], "❌ <b>Gagal:</b> {$e->getMessage()}\nCoba lagi atau resend OTP.", ['inline_keyboard' => [[['text' => '🔙 Beranda', 'callback_data' => 'dashboard']]]]);
+            editMessage($chat_id, $msg_sent['result']['message_id'], "❌ <b>Gagal:</b> {$e->getMessage()}\nKirim OTP dengan benar. Jika ingin menyudahi klik Batal.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]);
         }
         http_response_code(200); exit;
     }
 
     // STATE: WAIT_PASSWORD
-    if ($session['status'] === 'wait_password') {
+    if ($state['status'] === 'wait_password') {
         $msg_sent = sendMessage($chat_id, "🔄 <i>Memverifikasi Password...</i>");
         try {
-            $API = getMadeline($from_id, $session['phone_number']);
+            $API = getMadeline($from_id, $state['phone_number']);
             $API->complete2faLogin(trim($text));
-            $pdo->prepare("UPDATE user_sessions SET status = 'active' WHERE id = ?")->execute([$session['id']]);
+            // PASS SUCCESS! Insert fully
+            $pdo->prepare("INSERT INTO user_sessions (telegram_id, phone_number, status) VALUES (?, ?, 'active')")->execute([$from_id, $state['phone_number']]);
+            setTempState($from_id, null);
+            
             editMessage($chat_id, $msg_sent['result']['message_id'], "✅ <b>Login Tuntas!</b> Akun aktif.", ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]);
         } catch (\Exception $e) {
-            editMessage($chat_id, $msg_sent['result']['message_id'], "❌ <b>Password Salah / Gagal:</b> {$e->getMessage()}\nKirim ulang passwordnya.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => "delete_acc:{$session['id']}"]]]]);
+            editMessage($chat_id, $msg_sent['result']['message_id'], "❌ <b>Password Salah / Gagal:</b> {$e->getMessage()}\nKirim ulang passwordnya.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => "cancel_add"]]]]);
         }
         http_response_code(200); exit;
     }
