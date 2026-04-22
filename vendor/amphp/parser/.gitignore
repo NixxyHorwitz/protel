@@ -1,0 +1,8 @@
+.php_cs.cache
+.phpunit.result.cache
+build
+coverage
+composer.lock
+docs/Gemfile.lock
+phpunit.xml
+vendor

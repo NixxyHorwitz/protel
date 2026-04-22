@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.3/phpunit.xsd"
+         backupGlobals="false"
+         backupStaticAttributes="false"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+         convertErrorsToExceptions="true"
+         convertNoticesToExceptions="true"
+         convertWarningsToExceptions="true"
+         processIsolation="false"
+         stopOnFailure="false"
+>
+  <coverage includeUncoveredFiles="true">
+    <include>
+      <directory>./src</directory>
+    </include>
+  </coverage>
+  <php>
+    <!-- Needed because @dataProvider uses iterator_to_array() -->
+    <ini name="memory_limit" value="1G"/>
+    <ini name="error_reporting" value="-1"/>
+  </php>
+  <testsuites>
+    <testsuite name="Amp HTTP Server Test">
+      <directory>test</directory>
+    </testsuite>
+  </testsuites>
+</phpunit>
