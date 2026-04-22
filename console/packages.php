@@ -36,7 +36,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-$packages = $pdo->query("SELECT p.*, (SELECT COUNT(*) FROM users WHERE package_id=p.id) AS user_count FROM packages ORDER BY price")->fetchAll();
+$packages = $pdo->query("SELECT p.*, (SELECT COUNT(*) FROM users WHERE package_id=p.id) AS user_count FROM packages p ORDER BY p.price")->fetchAll();
 
 load_header('Packages');
 ?>
