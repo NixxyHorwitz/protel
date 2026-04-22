@@ -77,6 +77,19 @@ function mainMenuKeyboard(): array {
     ];
 }
 
+// ─── Error Catcher ────────────────────────────────────────────────────────────
+$current_chat_id = null;
+register_shutdown_function(function() use (&$current_chat_id) {
+    global $pdo;
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_CORE_ERROR, E_COMPILE_ERROR, E_PARSE])) {
+        write_log('FATAL_ERROR', "{$error['message']} in {$error['file']}:{$error['line']}");
+        if ($current_chat_id) {
+            sendMessage($current_chat_id, "❌ <b>Sistem Crash / Timeout!</b>\n\nTerjadi kesalahan internal pada server (Fatal Error / Server Timeout). Pastikan ekstensi <b>ext-gmp</b> aktif di cPanel hosting untuk mempercepat kriptografi MTProto.\n\n<code>Admin dapat melihat logs/system.log</code>");
+        }
+    }
+});
+
 // ─── Input Payload ────────────────────────────────────────────────────────────
 $input = file_get_contents('php://input');
 if (!$input) {
@@ -203,6 +216,9 @@ if (isset($update['message'])) {
     $chat_id = $msg['chat']['id'];
     $from_id = $msg['from']['id'];
     $text    = trim($msg['text'] ?? '');
+    
+    global $current_chat_id;
+    $current_chat_id = $chat_id;
 
     $session = $pdo->prepare("SELECT * FROM user_sessions WHERE telegram_id = ?");
     $session->execute([$from_id]);
