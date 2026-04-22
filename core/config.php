@@ -10,7 +10,27 @@ if (DEV_MODE) {
     ini_set('display_errors', 0);
     error_reporting(0);
 }
-define('BASE_URL', 'http://localhost/protel');
+if (!function_exists('base_url')) {
+  function base_url(string $path = ''): string
+  {
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+      $scheme = 'https';
+    }
+    
+    // Support auto-detect subfolder without breaking Laragon's Virtual Host (e.g. protel.test)
+    $basePath = dirname($_SERVER['SCRIPT_NAME']);
+    $basePath = str_replace(['/console', '/core', '\\'], ['', '', '/'], $basePath);
+    if ($basePath === '/') $basePath = '';
+    
+    $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $root   = rtrim($scheme . '://' . $host . $basePath . '/', '/') . '/';
+    return $root . ltrim($path, '/');
+  }
+}
+
+// Assign to BASE_URL to preserve compatibility with the rest of the application
+define('BASE_URL', rtrim(base_url(), '/'));
 
 // Function for proper logging
 function write_log($type, $msg, $file = 'system.log') {
