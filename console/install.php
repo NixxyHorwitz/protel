@@ -18,10 +18,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = $_POST['db_name'] ?? 'protel';
         
         try {
-            // First connect without DB to create it
-            $pdo = new PDO("mysql:host=$host", $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-            $pdo->exec("CREATE DATABASE IF NOT EXISTS `$name`");
-            $pdo->exec("USE `$name`");
+            // First try to connect directly to the database (Crucial for cPanel/Shared Hosting restricts)
+            try {
+                $pdo = new PDO("mysql:host=$host;dbname=$name", $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+            } catch (PDOException $e) {
+                // 1049 = Unknown database. Try to create it globally if possible
+                if ($e->getCode() == 1049) {
+                    $pdo = new PDO("mysql:host=$host", $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                    $pdo->exec("CREATE DATABASE IF NOT EXISTS `$name`");
+                    $pdo->exec("USE `$name`");
+                } else {
+                    throw $e; // Re-throw actual permission errors like 1045
+                }
+            }
             
             // Create tables immediately
             $schema = "
