@@ -15,26 +15,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($row && $row['media_path'] && file_exists(__DIR__ . '/../' . $row['media_path']))
             unlink(__DIR__ . '/../' . $row['media_path']);
         $pdo->prepare("DELETE FROM broadcasts WHERE id = ?")->execute([$id]);
+        write_log('ADMIN', "Deleted broadcast ID $id");
         $msg = "Broadcast task deleted."; $msg_type = 'danger';
     } elseif ($action === 'create') {
         $session_id   = (int)($_POST['session_id'] ?? 0);
         $message      = trim($_POST['message'] ?? '');
         $target_count = (int)($_POST['target_count'] ?? 0);
-        $media_path   = null;
-        if (isset($_FILES['media']) && $_FILES['media']['error'] === 0) {
-            $ext = strtolower(pathinfo($_FILES['media']['name'], PATHINFO_EXTENSION));
-            if (in_array($ext, ['jpg','jpeg','png','gif','mp4','mov'])) {
-                $fname = 'uploads/' . uniqid('bc_') . '.' . $ext;
-                move_uploaded_file($_FILES['media']['tmp_name'], __DIR__ . '/../' . $fname);
-                $media_path = $fname;
+        
+        if (empty($sessions_list) || $session_id <= 0) {
+            $msg = "Please select a valid session."; $msg_type = 'warning';
+        } elseif (empty($message)) {
+            $msg = "Message content cannot be empty."; $msg_type = 'warning';
+        } else {
+            $media_path = null;
+            if (isset($_FILES['media']) && $_FILES['media']['error'] === 0) {
+                $ext = strtolower(pathinfo($_FILES['media']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg','jpeg','png','gif','mp4','mov'])) {
+                    $fname = 'uploads/' . uniqid('bc_') . '.' . $ext;
+                    move_uploaded_file($_FILES['media']['tmp_name'], __DIR__ . '/../' . $fname);
+                    $media_path = $fname;
+                }
             }
-        }
-        if ($session_id > 0 && !empty($message)) {
             $pdo->prepare("INSERT INTO broadcasts (session_id, message, media_path, status, target_count) VALUES (?,?,?,'draft',?)")
                 ->execute([$session_id, $message, $media_path, $target_count]);
-            $msg = "Broadcast task created."; $msg_type = 'success';
-        } else {
-            $msg = "Session and message are required."; $msg_type = 'warning';
+            write_log('BROADCAST', "New broadcast task created for session $session_id");
+            $msg = "Broadcast task created successfully."; $msg_type = 'success';
         }
     } elseif (in_array($action, ['start','pause','stop']) && $id > 0) {
         $st = match($action) { 'start' => 'process', 'pause' => 'draft', default => 'failed' };
@@ -101,7 +106,7 @@ load_header('Broadcast');
                     <input type="hidden" name="action" value="create">
                     <div class="mb-3">
                         <label class="fl">Session (Sender)</label>
-                        <select name="session_id" class="form-select" required>
+                        <select name="session_id" class="form-select">
                             <option value="">— Select Active Session —</option>
                             <?php foreach ($sessions_list as $sl): ?>
                             <option value="<?= (int)$sl['id'] ?>"><?= h($sl['telegram_id']) ?> (<?= h($sl['phone_number']) ?>)</option>
@@ -113,7 +118,7 @@ load_header('Broadcast');
                     </div>
                     <div class="mb-3">
                         <label class="fl">Message</label>
-                        <textarea name="message" class="form-control" rows="5" placeholder="Enter broadcast message…" required></textarea>
+                        <textarea name="message" class="form-control" rows="5" placeholder="Enter broadcast message…"></textarea>
                     </div>
                     <div class="mb-3">
                         <label class="fl">Media <span style="font-weight:400;text-transform:none;color:var(--mut)">(Optional)</span></label>
