@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../core/auth.php';
 check_auth();
+require_once __DIR__ . '/../core/layout.php';
 
 $msg = '';
 $stmt = $pdo->query("SELECT * FROM bot_settings WHERE id = 1");
