@@ -1,13 +1,17 @@
 <?php
 require_once __DIR__ . '/config.php';
 
-$host = '127.0.0.1';
-$db   = 'protel';
-$user = 'root';
-$pass = '';
-$charset = 'utf8mb4';
+if (!file_exists(__DIR__ . '/env.php')) {
+    if (basename($_SERVER['PHP_SELF']) !== 'install.php') {
+        header('Location: ' . BASE_URL . '/console/install');
+        exit;
+    }
+    return;
+}
 
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
+$env = require __DIR__ . '/env.php';
+
+$dsn = "mysql:host={$env['DB_HOST']};dbname={$env['DB_NAME']};charset=utf8mb4";
 $options = [
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
@@ -15,8 +19,10 @@ $options = [
 ];
 
 try {
-     $pdo = new PDO($dsn, $user, $pass, $options);
+     $pdo = new PDO($dsn, $env['DB_USER'], $env['DB_PASS'], $options);
 } catch (\PDOException $e) {
      write_log('DB_ERROR', $e->getMessage());
-     throw new \PDOException($e->getMessage(), (int)$e->getCode());
+     if (basename($_SERVER['PHP_SELF']) !== 'install.php') {
+         die("Database connection failed. Please check core/env.php.");
+     }
 }

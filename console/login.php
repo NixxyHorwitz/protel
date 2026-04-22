@@ -57,6 +57,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <p class="text-muted small">Sign in to ProTel Admin Panel</p>
             </div>
             
+            <?php if (isset($_GET['installed'])): ?>
+                <div class="alert alert-success py-2 text-center small rounded-2">
+                    <i class="fa-solid fa-check-circle me-1"></i> Setup complete! Please login with your new account.
+                </div>
+            <?php endif; ?>
+
             <?php if ($error): ?>
                 <div class="alert alert-danger py-2 text-center small rounded-2">
                     <?= htmlspecialchars($error) ?>
