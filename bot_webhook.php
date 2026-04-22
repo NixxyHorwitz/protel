@@ -391,12 +391,12 @@ if (isset($update['message'])) {
 
         $msg_sent = sendMessage($chat_id, "🔄 <i>Menghubungi Telegram untuk nomor $phone...</i>");
         
+        // Anti-Duplicate Webhook: Advance state IMMEDIATELY before slow network call
+        setTempState($from_id, 'wait_otp', $phone);
+        
         try {
             $API = getMadeline($from_id, $phone);
             $API->phoneLogin($phone);
-            
-            // Advance temp state to wait_otp
-            setTempState($from_id, 'wait_otp', $phone);
 
             editMessage($chat_id, $msg_sent['result']['message_id'],
                 "📩 <b>Kode OTP Telah Dikirim!</b>\n\n".
@@ -408,6 +408,8 @@ if (isset($update['message'])) {
                 ]]
             );
         } catch (\Exception $e) {
+            // Revert state if failed
+            setTempState($from_id, 'pending', '');
             editMessage($chat_id, $msg_sent['result']['message_id'], 
                 "❌ <b>Kesalahan:</b>\n<code>{$e->getMessage()}</code>",
                 ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]
