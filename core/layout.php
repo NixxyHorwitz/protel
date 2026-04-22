@@ -25,9 +25,21 @@ function load_header($title) {
             <nav>
                 <a href="index" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'index.php' ? 'active' : '') . '"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
                 <a href="setup" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'setup.php' ? 'active' : '') . '"><i class="fa-solid fa-robot"></i> Bot Setup</a>
-                <a href="users" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : '') . '"><i class="fa-solid fa-users"></i> Member Sessions</a>
-                <a href="contacts" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'contacts.php' ? 'active' : '') . '"><i class="fa-solid fa-address-book"></i> Contacts</a>
-                <a href="broadcast" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'broadcast.php' ? 'active' : '') . '"><i class="fa-solid fa-bullhorn"></i> Broadcast Task</a>
+                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : '') . '" href="users.php">
+                    <i class="fas fa-users"></i> Bot Users (Clients)
+                </a>
+                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'packages.php' ? 'active' : '') . '" href="packages.php">
+                    <i class="fas fa-box"></i> Subscription Packages
+                </a>
+                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'sessions.php' ? 'active' : '') . '" href="sessions.php">
+                    <i class="fas fa-mobile-alt"></i> Connected Accounts (Sessions)
+                </a>
+                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'contacts.php' ? 'active' : '') . '" href="contacts.php">
+                    <i class="fas fa-address-book"></i> Contacts
+                </a>
+                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'broadcast.php' ? 'active' : '') . '" href="broadcast.php">
+                    <i class="fa-solid fa-bullhorn"></i> Broadcast Task
+                </a>
                 <a href="logs" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'logs.php' ? 'active' : '') . '"><i class="fa-solid fa-clipboard-list"></i> System Logs</a>
                 <a href="logout" class="sidebar-link text-danger mt-4"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
             </nav>
