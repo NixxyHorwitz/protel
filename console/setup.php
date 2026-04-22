@@ -9,10 +9,12 @@ $settings = $stmt->fetch();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['update_token'])) {
-        $token = trim($_POST['bot_token']);
-        $url = trim($_POST['webhook_url']);
+        $token   = trim($_POST['bot_token']);
+        $url     = trim($_POST['webhook_url']);
+        $welcome = trim($_POST['welcome_message']);
         
-        $pdo->prepare("UPDATE bot_settings SET bot_token = ?, webhook_url = ? WHERE id = 1")->execute([$token, $url]);
+        $pdo->prepare("UPDATE bot_settings SET bot_token = ?, webhook_url = ?, welcome_message = ? WHERE id = 1")
+            ->execute([$token, $url, $welcome]);
         write_log('SYSTEM', "Bot settings updated manually");
         $msg = "Settings saved successfully.";
         
@@ -79,10 +81,15 @@ load_header('Bot Setup');
                         <label class="form-label small fw-bold text-muted">Bot Token (from @BotFather)</label>
                         <input type="text" name="bot_token" class="form-control font-monospace" value="<?= htmlspecialchars($settings['bot_token'] ?? '') ?>" placeholder="123456789:ABCDEF...">
                     </div>
-                    <div class="mb-4">
+                    <div class="mb-3">
                         <label class="form-label small fw-bold text-muted">Webhook URL Endpoint</label>
                         <input type="url" name="webhook_url" class="form-control" value="<?= htmlspecialchars($settings['webhook_url'] ?? BASE_URL.'/bot_webhook.php') ?>">
                         <div class="form-text small">Absolute URL where Bot Webhook is processed. Ensure HTTPS.</div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="form-label small fw-bold text-muted">Welcome Message</label>
+                        <textarea name="welcome_message" class="form-control" rows="5" placeholder="Contoh: 👋 Halo {name}, selamat datang!"><?= htmlspecialchars($settings['welcome_message'] ?? '') ?></textarea>
+                        <div class="form-text small">Gunakan <code>{name}</code> untuk menyisipkan nama pengguna. Mendukung tag HTML Telegram: &lt;b&gt;, &lt;i&gt;, &lt;code&gt;.</div>
                     </div>
                     
                     <div class="d-flex gap-2">
