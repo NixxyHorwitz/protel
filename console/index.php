@@ -13,62 +13,68 @@ $stats = [
 load_header('Dashboard');
 ?>
 
+<div class="page-header">
+    <h1>Dashboard</h1>
+    <p>Overview of your ProTel userbot platform</p>
+</div>
+
 <div class="row g-3 mb-4">
     <?php
     $cards = [
-        ['Bot Users',        $stats['users'],      'fa-users',         'var(--accent)',   'var(--blue-dim)'],
-        ['Active Sessions',  $stats['sessions'],   'fa-mobile-alt',    '#3fb950',         'var(--green-dim)'],
-        ['Total Contacts',   $stats['contacts'],   'fa-address-book',  '#e3b341',         'var(--yellow-dim)'],
-        ['Broadcasts',       $stats['broadcasts'], 'fa-bullhorn',      '#ff7b72',         'var(--red-dim)'],
+        ['Bot Users',       $stats['users'],      'fa-users',      'blue'],
+        ['Active Sessions', $stats['sessions'],   'fa-mobile-alt', 'green'],
+        ['Total Contacts',  $stats['contacts'],   'fa-address-book','orange'],
+        ['Broadcasts',      $stats['broadcasts'], 'fa-bullhorn',   'purple'],
     ];
-    foreach ($cards as [$label, $val, $icon, $color, $bg]):
+    foreach ($cards as [$label, $val, $icon, $color]):
     ?>
     <div class="col-6 col-md-3">
-        <div class="stat-card">
-            <div class="stat-icon" style="background:<?= $bg ?>; color:<?= $color ?>">
-                <i class="fas <?= $icon ?>"></i>
-            </div>
-            <div>
-                <div class="stat-val"><?= number_format($val) ?></div>
-                <div class="stat-label"><?= $label ?></div>
-            </div>
+        <div class="sc <?= $color ?>">
+            <div class="si <?= $color ?>"><i class="fas <?= $icon ?>"></i></div>
+            <div class="sv"><?= number_format($val) ?></div>
+            <div class="sl"><?= $label ?></div>
         </div>
     </div>
     <?php endforeach; ?>
 </div>
 
-<div class="card">
-    <div class="card-header d-flex align-items-center justify-content-between">
-        <span><i class="fas fa-clock me-2 text-muted" style="font-size:.75rem"></i>Recent Sessions</span>
-        <a href="sessions.php" class="btn btn-sm btn-secondary">View All</a>
+<div class="card-c">
+    <div class="ch">
+        <div>
+            <div class="ct"><i class="fas fa-clock me-2" style="color:var(--mut);font-size:13px"></i>Recent Sessions</div>
+            <div class="cs">Last 8 connected accounts</div>
+        </div>
+        <a href="sessions.php" class="btn btn-secondary btn-sm">View All</a>
     </div>
-    <div class="table-responsive">
-        <table class="table">
-            <thead><tr>
-                <th>Telegram ID</th>
-                <th>Phone</th>
-                <th>Status</th>
-                <th>Date</th>
-            </tr></thead>
+    <div class="cb p-0">
+        <table class="tbl">
+            <thead>
+                <tr>
+                    <th>Telegram ID</th>
+                    <th>Phone</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                </tr>
+            </thead>
             <tbody>
             <?php
             $rows = $pdo->query("SELECT * FROM user_sessions ORDER BY id DESC LIMIT 8")->fetchAll();
             if ($rows): foreach ($rows as $r):
-                $badge = match($r['status']) {
-                    'active'   => 'badge-success',
-                    'pending','wait_otp','wait_password' => 'badge-warning',
-                    'banned'   => 'badge-danger',
-                    default    => 'badge-secondary'
+                [$bc, $bclass] = match($r['status']) {
+                    'active'   => [$r['status'], 'bd-ok'],
+                    'banned'   => [$r['status'], 'bd-err'],
+                    'wait_otp','wait_password' => [$r['status'], 'bd-warn'],
+                    default    => [$r['status'], 'bd-acc'],
                 };
             ?>
             <tr>
                 <td><code class="mono"><?= h($r['telegram_id']) ?></code></td>
-                <td><?= h($r['phone_number'] ?: '—') ?></td>
-                <td><span class="badge <?= $badge ?>"><?= ucfirst(h($r['status'])) ?></span></td>
-                <td style="color:var(--text-muted);font-size:.75rem"><?= date('d M H:i', strtotime($r['created_at'])) ?></td>
+                <td style="color:var(--sub)"><?= h($r['phone_number'] ?: '—') ?></td>
+                <td><span class="bd <?= $bclass ?>"><?= ucfirst(h($r['status'])) ?></span></td>
+                <td style="color:var(--mut);font-size:12px"><?= date('d M Y H:i', strtotime($r['created_at'])) ?></td>
             </tr>
             <?php endforeach; else: ?>
-            <tr><td colspan="4" class="text-center py-4" style="color:var(--text-muted)">No sessions yet.</td></tr>
+            <tr><td colspan="4" style="text-align:center;padding:32px;color:var(--mut)">No sessions yet.</td></tr>
             <?php endif; ?>
             </tbody>
         </table>
