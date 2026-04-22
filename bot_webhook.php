@@ -1,5 +1,9 @@
 <?php
 require_once __DIR__ . '/core/database.php';
+// Include Composer autoload for MadelineProto
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+}
 
 // ─── Telegram API Helper ──────────────────────────────────────────────────────
 function tg(string $method, array $params): ?array {
@@ -41,6 +45,22 @@ function answerCallback(string $callback_id, string $text = '', bool $alert = fa
     ]);
 }
 
+// ─── MadelineProto Helper ─────────────────────────────────────────────────────
+function getMadeline(int|string $telegram_id) {
+    if (!is_dir(__DIR__ . '/sessions')) {
+        mkdir(__DIR__ . '/sessions', 0777, true);
+    }
+    $settings = new \danog\MadelineProto\Settings();
+    $settings->getLogger()->setLevel(\danog\MadelineProto\Logger::FATAL_ERROR);
+    $settings->getPeer()->setCacheAllPeersOnStartup(false);
+    
+    // Official Telegram Android API ID/Hash (Often used for MTProto clients)
+    $settings->getAppInfo()->setApiId(2040)->setApiHash('b18441a1ff607e10a989891a5462e627');
+    
+    $sessionPath = __DIR__ . "/sessions/session_{$telegram_id}.madeline";
+    return new \danog\MadelineProto\API($sessionPath, $settings);
+}
+
 // ─── Main Menu Keyboard ───────────────────────────────────────────────────────
 function mainMenuKeyboard(): array {
     return [
@@ -72,10 +92,10 @@ if (!$update) {
 }
 
 if (DEV_MODE) {
-    write_log('WEBHOOK_RAW', $input);
+    // Only log small part of update to prevent spam
+    write_log('WEBHOOK_RAW', substr($input, 0, 500) . '...');
 }
 
-// ─── Fetch Bot Settings (token + welcome message) ─────────────────────────────
 $settings = $pdo->query("SELECT * FROM bot_settings WHERE id = 1")->fetch();
 $welcome_msg = !empty($settings['welcome_message'])
     ? $settings['welcome_message']
@@ -89,16 +109,14 @@ if (isset($update['callback_query'])) {
     $chat_id = $cb['message']['chat']['id'];
     $from_id = $cb['from']['id'];
 
-    // Cek status user
     $session = $pdo->prepare("SELECT * FROM user_sessions WHERE telegram_id = ?");
     $session->execute([$from_id]);
     $session = $session->fetch();
 
     switch ($cb_data) {
-
         case 'menu_connect':
             if ($session && $session['status'] === 'active') {
-                answerCallback($cb_id, '✅ Nomor kamu sudah terhubung!', true);
+                answerCallback($cb_id, '✅ Akun kamu sudah terhubung dan aktif!', true);
                 break;
             }
             if ($session && $session['status'] === 'banned') {
@@ -108,12 +126,11 @@ if (isset($update['callback_query'])) {
             answerCallback($cb_id);
             sendMessage($chat_id,
                 "📱 <b>Hubungkan Nomor Telegram</b>\n\n".
-                "Kirim nomor HP kamu dengan format internasional:\n".
-                "<code>+628xxxxxxxxxx</code>\n\n".
-                "⚠️ Pastikan nomor tersebut terdaftar di Telegram.",
-                ['inline_keyboard' => [[['text' => '🔙 Kembali', 'callback_data' => 'menu_back']]]]
+                "Silakan ketik dan kirim nomor HP kamu dengan format internasional:\n".
+                "Contoh: <code>+62812xxxxxx</code>\n\n".
+                "⚠️ Pastikan nomor tersebut terdaftar aktif di aplikasi Telegram.",
+                ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'menu_back']]]]
             );
-            // Set user state to awaiting phone
             $pdo->prepare("INSERT INTO user_sessions (telegram_id, phone_number, status) VALUES (?, '', 'pending') ON DUPLICATE KEY UPDATE status = IF(status='banned','banned','pending')")->execute([$from_id]);
             break;
 
@@ -123,10 +140,12 @@ if (isset($update['callback_query'])) {
                 $status_text = "❌ <b>Belum terdaftar.</b>\n\nKamu belum menghubungkan nomor apapun.";
             } else {
                 $icon = match($session['status']) {
-                    'active'  => '✅',
-                    'pending' => '⏳',
-                    'banned'  => '🚫',
-                    default   => '❓',
+                    'active'        => '✅',
+                    'pending'       => '⏳',
+                    'wait_otp'      => '🔑',
+                    'wait_password' => '🔒',
+                    'banned'        => '🚫',
+                    default         => '❓',
                 };
                 $status_text =
                     "$icon <b>Status Akun Kamu</b>\n\n".
@@ -142,14 +161,13 @@ if (isset($update['callback_query'])) {
         case 'menu_help':
             answerCallback($cb_id);
             sendMessage($chat_id,
-                "❓ <b>Bantuan</b>\n\n".
-                "Bot ini digunakan untuk menghubungkan nomor Telegram kamu ke sistem ProTel.\n\n".
-                "<b>Cara penggunaan:</b>\n".
+                "❓ <b>Bantuan Penggunaan</b>\n\n".
                 "1. Klik <b>Connect My Number</b>\n".
-                "2. Kirim nomor HP format internasional\n".
-                "3. Masukkan kode OTP yang dikirim Telegram\n".
-                "4. Selesai! Status kamu akan menjadi <b>Active</b>\n\n".
-                "Hubungi admin jika ada masalah.",
+                "2. Kirim nomor HP Telegram kamu.\n".
+                "3. Telegram resmi akan mengirimkan <b>Kode OTP</b> ke aplikasimu.\n".
+                "4. Kirim kode OTP tersebut ke bot ini.\n".
+                "5. Jika diminta, kirim juga Password 2FA kamu.\n\n".
+                "<i>Data sesi akan disimpan secara aman untuk kebutuhan layanan.</i>",
                 ['inline_keyboard' => [[['text' => '🔙 Kembali', 'callback_data' => 'menu_back']]]]
             );
             break;
@@ -157,16 +175,17 @@ if (isset($update['callback_query'])) {
         case 'menu_contact':
             answerCallback($cb_id);
             sendMessage($chat_id,
-                "📞 <b>Kontak Admin</b>\n\n".
-                "Untuk bantuan lebih lanjut, hubungi:\n".
-                "➡️ @admin\n\n".
-                "_Jam layanan: 09.00 – 21.00 WIB_",
+                "📞 <b>Kontak Admin</b>\n\nUntuk bantuan lebih lanjut: @admin",
                 ['inline_keyboard' => [[['text' => '🔙 Kembali', 'callback_data' => 'menu_back']]]]
             );
             break;
 
         case 'menu_back':
             answerCallback($cb_id);
+            // Reset state if not active or banned
+            if ($session && !in_array($session['status'], ['active', 'banned'])) {
+                $pdo->prepare("UPDATE user_sessions SET status = 'pending' WHERE telegram_id = ?")->execute([$from_id]);
+            }
             sendMessage($chat_id, $welcome_msg, mainMenuKeyboard());
             break;
 
@@ -185,66 +204,107 @@ if (isset($update['message'])) {
     $from_id = $msg['from']['id'];
     $text    = trim($msg['text'] ?? '');
 
-    // Fetch current session
     $session = $pdo->prepare("SELECT * FROM user_sessions WHERE telegram_id = ?");
     $session->execute([$from_id]);
     $session = $session->fetch();
 
-    // ── /start ──
-    if ($text === '/start') {
-        write_log('BOT', "User $from_id sent /start");
+    if ($text === '/start' || $text === '/menu') {
         $name = $msg['from']['first_name'] ?? 'Pengguna';
-
-        // Personalize welcome: replace {name} placeholder if set
         $personalized = str_replace('{name}', htmlspecialchars($name), $welcome_msg);
-
         sendMessage($chat_id, $personalized, mainMenuKeyboard());
         http_response_code(200);
         exit('OK');
     }
 
-    // ── /menu ──
-    if ($text === '/menu') {
-        sendMessage($chat_id, $welcome_msg, mainMenuKeyboard());
-        http_response_code(200);
-        exit('OK');
-    }
-
-    // ── Phone Number Input (user in pending state) ──
-    if ($session && $session['status'] === 'pending' && preg_match('/^\+?[0-9]{7,15}$/', str_replace([' ', '-'], '', $text))) {
-        $phone = preg_replace('/[^0-9+]/', '', $text);
-        // Normalize to +62 format if starts with 08
-        if (str_starts_with($phone, '08')) {
-            $phone = '+62' . substr($phone, 1);
-        } elseif (str_starts_with($phone, '62') && !str_starts_with($phone, '+')) {
-            $phone = '+' . $phone;
-        }
-
-        $pdo->prepare("UPDATE user_sessions SET phone_number = ?, status = 'pending' WHERE telegram_id = ?")
-            ->execute([$phone, $from_id]);
-
-        write_log('BOT', "User $from_id submitted phone: $phone");
-
-        sendMessage($chat_id,
-            "⏳ <b>Nomor Diterima!</b>\n\n".
-            "Nomor: <code>$phone</code>\n\n".
-            "Permintaanmu sedang diproses oleh admin. ".
-            "Kamu akan mendapat notifikasi saat akun aktif.",
-            ['inline_keyboard' => [[['text' => '📊 Cek Status', 'callback_data' => 'menu_status']]]]
-        );
-        http_response_code(200);
-        exit('OK');
-    }
-
-    // ── Banned user ──
     if ($session && $session['status'] === 'banned') {
-        sendMessage($chat_id, "🚫 <b>Akses Ditolak.</b>\n\nAkun Telegram kamu telah dibanned dari sistem.");
+        sendMessage($chat_id, "🚫 <b>Akses Ditolak.</b>\nAkun Telegram kamu telah dibanned.");
         http_response_code(200);
         exit('OK');
     }
 
-    // ── Default: show menu ──
-    sendMessage($chat_id, "Ketik /start atau pilih menu di bawah.", mainMenuKeyboard());
+    // STATE: PENDING (Waiting for Phone Number)
+    if ($session && $session['status'] === 'pending' && preg_match('/^\+?[0-9]{8,15}$/', str_replace([' ', '-'], '', $text))) {
+        $phone = preg_replace('/[^0-9+]/', '', $text);
+        if (str_starts_with($phone, '08')) $phone = '+62' . substr($phone, 1);
+        elseif (str_starts_with($phone, '62') && !str_starts_with($phone, '+')) $phone = '+' . $phone;
+
+        sendMessage($chat_id, "🔄 <i>Sedang menghubungi Telegram... mohon tunggu.</i>");
+
+        try {
+            $API = getMadeline($from_id);
+            $API->phoneLogin($phone);
+            
+            $pdo->prepare("UPDATE user_sessions SET phone_number = ?, status = 'wait_otp' WHERE telegram_id = ?")->execute([$phone, $from_id]);
+            write_log('MTPROTO', "Phone Login requested for $phone (ID: $from_id)");
+
+            sendMessage($chat_id,
+                "📩 <b>Kode OTP Telah Dikirim!</b>\n\n".
+                "Telegram telah mengirimkan kode verifikasi ke aplikasi Telegram kamu (bukan SMS).\n\n".
+                "👉 <b>Silakan ketik dan kirimkan kode OTP tersebut ke sini.</b>"
+            );
+        } catch (\Exception $e) {
+            write_log('MTPROTO_ERR', "PhoneLogin error ($phone): " . $e->getMessage());
+            sendMessage($chat_id, "❌ <b>Gagal mengirim OTP.</b>\nPastikan nomor benar atau coba lagi nanti.\n<code>Err: " . $e->getMessage() . "</code>", mainMenuKeyboard());
+        }
+        http_response_code(200);
+        exit('OK');
+    }
+
+    // STATE: WAIT_OTP (Waiting for Telegram OTP Code)
+    if ($session && $session['status'] === 'wait_otp') {
+        $otp = trim(str_replace([' ', '-'], '', $text));
+        
+        sendMessage($chat_id, "🔄 <i>Sedang memverifikasi OTP...</i>");
+        
+        try {
+            $API = getMadeline($from_id);
+            $API->completePhoneLogin($otp);
+            // Login Success!
+            $pdo->prepare("UPDATE user_sessions SET status = 'active' WHERE telegram_id = ?")->execute([$from_id]);
+            write_log('MTPROTO', "Login SUCCESS for $from_id");
+
+            sendMessage($chat_id, "✅ <b>Verifikasi Berhasil!</b>\n\nNomor Telegram kamu sekarang sudah aktif di dalam sistem.", mainMenuKeyboard());
+        } catch (\danog\MadelineProto\Exception\Require2FAException $e) {
+            // Need 2FA Password
+            $pdo->prepare("UPDATE user_sessions SET status = 'wait_password' WHERE telegram_id = ?")->execute([$from_id]);
+            sendMessage($chat_id, "🔐 <b>Akun Dilindungi Password (2FA)</b>\n\nSilakan kirimkan password Cloud / 2FA kamu:");
+        } catch (\Exception $e) {
+            write_log('MTPROTO_ERR', "CompleteLogin error: " . $e->getMessage());
+            sendMessage($chat_id, "❌ <b>OTP Salah atau Kadaluarsa.</b>\nSilakan coba lagi /connect dari awal.\n<code>Err: " . $e->getMessage() . "</code>");
+            $pdo->prepare("UPDATE user_sessions SET status = 'pending' WHERE telegram_id = ?")->execute([$from_id]);
+        }
+        http_response_code(200);
+        exit('OK');
+    }
+
+    // STATE: WAIT_PASSWORD (Waiting for 2FA Password)
+    if ($session && $session['status'] === 'wait_password') {
+        $password = trim($text);
+        
+        sendMessage($chat_id, "🔄 <i>Sedang menyelesaikan login...</i>");
+        
+        try {
+            $API = getMadeline($from_id);
+            $API->complete2faLogin($password);
+            
+            $pdo->prepare("UPDATE user_sessions SET status = 'active' WHERE telegram_id = ?")->execute([$from_id]);
+            write_log('MTPROTO', "2FA Login SUCCESS for $from_id");
+
+            sendMessage($chat_id, "✅ <b>Login Berhasil!</b>\n\nNomor Telegram kamu sekarang sudah aktif di sistem.", mainMenuKeyboard());
+        } catch (\Exception $e) {
+            write_log('MTPROTO_ERR', "2FALogin error: " . $e->getMessage());
+            sendMessage($chat_id, "❌ <b>Password Salah.</b>\n\nSilakan ketik ulang password 2FA kamu:");
+        }
+        http_response_code(200);
+        exit('OK');
+    }
+
+    // Default message
+    if ($session && $session['status'] === 'active') {
+        sendMessage($chat_id, "🔰 <b>Session Aktif</b>\n\nKetik /menu untuk melihat kembali opsi utama.");
+    } else {
+        sendMessage($chat_id, "Ketik /start atau pilih opsi di menu utama.", mainMenuKeyboard());
+    }
 }
 
 http_response_code(200);

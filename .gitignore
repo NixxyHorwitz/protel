@@ -1,0 +1,5 @@
+/sessions/*
+!/sessions/.gitkeep
+/.env
+/core/env.php
+/composer.phar
