@@ -20,6 +20,10 @@ $options = [
 
 try {
      $pdo = new PDO($dsn, $env['DB_USER'], $env['DB_PASS'], $options);
+     
+     // Silent Auto-Migrations for Bot Logic Fixes
+     try { $pdo->exec("ALTER TABLE user_sessions DROP INDEX telegram_id"); } catch (\Exception $e) {}
+     try { $pdo->exec("ALTER TABLE user_sessions MODIFY COLUMN status ENUM('pending', 'wait_otp', 'wait_password', 'active', 'expired', 'banned') DEFAULT 'pending'"); } catch (\Exception $e) {}
 } catch (\PDOException $e) {
      write_log('DB_ERROR', $e->getMessage());
      if (basename($_SERVER['PHP_SELF']) !== 'install.php') {
