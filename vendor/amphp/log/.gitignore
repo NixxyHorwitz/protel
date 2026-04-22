@@ -1,8 +1,0 @@
-/.php-cs-fixer.cache
-/.phpunit.result.cache
-/build
-/composer.lock
-/examples/example.log
-/phpunit.xml
-/vendor
-/composer-require-checker.phar

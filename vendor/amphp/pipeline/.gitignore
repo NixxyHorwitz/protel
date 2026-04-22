@@ -1,9 +1,0 @@
-.php_cs.cache
-.php-cs-fixer.cache
-.phpunit.result.cache
-build
-coverage
-composer.lock
-phpunit.xml
-vendor
-composer-require-checker.phar

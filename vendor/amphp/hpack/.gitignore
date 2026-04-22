@@ -1,9 +1,0 @@
-.php_cs.cache
-.phpunit.result.cache
-build
-composer.lock
-coverage
-phpunit.xml
-vendor
-fuzz
-php-fuzzer.phar

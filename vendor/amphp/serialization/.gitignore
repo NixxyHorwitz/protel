@@ -1,7 +1,0 @@
-.php_cs.cache
-.phpunit.result.cache
-.vagrant
-build
-composer.lock
-phpunit.xml
-vendor

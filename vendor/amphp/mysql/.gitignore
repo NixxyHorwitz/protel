@@ -1,9 +1,0 @@
-.php_cs.cache
-.phpunit.result.cache
-build
-composer.lock
-phpunit.xml
-vendor
-mysql-config.php
-*.pid
-test/mysql_db

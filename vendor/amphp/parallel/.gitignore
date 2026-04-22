@@ -1,9 +1,0 @@
-.php_cs.cache
-.phpunit.result.cache
-.vagrant
-build
-composer.lock
-docs/Gemfile.lock
-phpunit.xml
-vendor
-composer-require-checker.phar
