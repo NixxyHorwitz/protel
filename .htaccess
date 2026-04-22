@@ -1,0 +1,8 @@
+Options -Indexes
+RewriteEngine On
+
+# Protect core files
+RewriteRule ^core/ - [F,L]
+RewriteRule ^logs/ - [F,L]
+# Do not block direct access to uploads if media viewing is needed, but we can block scripts
+RewriteRule ^uploads/.*\.(php|php5|phtml|sh|pl|cgi)$ - [F,L]
