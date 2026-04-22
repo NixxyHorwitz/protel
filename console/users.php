@@ -3,169 +3,161 @@ require_once __DIR__ . '/../core/auth.php';
 check_auth();
 require_once __DIR__ . '/../core/layout.php';
 
-$msg = '';
-$msg_type = 'info';
+$msg = $msg_type = '';
 
-// Handle actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
-    
+
     if ($action === 'delete') {
-        $id = (int)($_POST['id'] ?? 0);
+        $id = filter_input(INPUT_POST, 'id', FILTER_VALIDATE_INT);
         if ($id > 0) {
             $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$id]);
-            $msg = "User deleted successfully.";
-            $msg_type = 'danger';
+            $pdo->prepare("DELETE FROM user_sessions WHERE telegram_id = (SELECT telegram_id FROM users WHERE id = ? LIMIT 1)")->execute([$id]);
+            write_log('ADMIN', "Deleted user ID $id");
+            $msg = "User deleted."; $msg_type = 'danger';
         }
     } elseif ($action === 'update') {
-        $id = (int)($_POST['id'] ?? 0);
-        $coins = (int)($_POST['coins'] ?? 0);
-        $package_id = (int)($_POST['package_id'] ?? 1);
+        $id       = filter_input(INPUT_POST, 'id',         FILTER_VALIDATE_INT);
+        $coins    = filter_input(INPUT_POST, 'coins',      FILTER_VALIDATE_INT);
+        $pkg_id   = filter_input(INPUT_POST, 'package_id', FILTER_VALIDATE_INT);
         if ($id > 0) {
-            $pdo->prepare("UPDATE users SET coins = ?, package_id = ? WHERE id = ?")->execute([$coins, $package_id, $id]);
-            $msg = "User updated successfully.";
-            $msg_type = 'success';
+            $pdo->prepare("UPDATE users SET coins = ?, package_id = ? WHERE id = ?")
+                ->execute([$coins ?? 0, $pkg_id ?? 1, $id]);
+            write_log('ADMIN', "Updated user ID $id coins=$coins pkg=$pkg_id");
+            $msg = "User updated successfully."; $msg_type = 'success';
         }
     }
 }
 
-// Pagination + search
-$search = trim($_GET['q'] ?? '');
-$page = max(1, (int)($_GET['page'] ?? 1));
-$per_page = 20;
-$offset = ($page - 1) * $per_page;
+$search    = trim(strip_tags($_GET['q'] ?? ''));
+$page      = max(1, (int)($_GET['page'] ?? 1));
+$per_page  = 20;
+$offset    = ($page - 1) * $per_page;
 
 if ($search) {
+    $like = "%$search%";
     $total = $pdo->prepare("SELECT COUNT(*) FROM users WHERE telegram_id LIKE ? OR name LIKE ?");
-    $total->execute(["%$search%", "%$search%"]);
-    $total = $total->fetchColumn();
-
-    $stmt = $pdo->prepare("SELECT u.*, p.name as pkg_name FROM users u LEFT JOIN packages p ON u.package_id = p.id WHERE u.telegram_id LIKE ? OR u.name LIKE ? ORDER BY u.id DESC LIMIT $per_page OFFSET $offset");
-    $stmt->execute(["%$search%", "%$search%"]);
+    $total->execute([$like, $like]);
+    $total = (int)$total->fetchColumn();
+    $stmt  = $pdo->prepare("SELECT u.*, p.name AS pkg_name FROM users u LEFT JOIN packages p ON u.package_id=p.id WHERE u.telegram_id LIKE ? OR u.name LIKE ? ORDER BY u.id DESC LIMIT $per_page OFFSET $offset");
+    $stmt->execute([$like, $like]);
 } else {
-    $total = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
-    $stmt = $pdo->prepare("SELECT u.*, p.name as pkg_name FROM users u LEFT JOIN packages p ON u.package_id = p.id ORDER BY u.id DESC LIMIT $per_page OFFSET $offset");
+    $total = (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+    $stmt  = $pdo->prepare("SELECT u.*, p.name AS pkg_name FROM users u LEFT JOIN packages p ON u.package_id=p.id ORDER BY u.id DESC LIMIT $per_page OFFSET $offset");
     $stmt->execute();
 }
+$users      = $stmt->fetchAll();
+$total_pages = max(1, (int)ceil($total / $per_page));
+$packages   = $pdo->query("SELECT id, name FROM packages ORDER BY price")->fetchAll();
 
-$users = $stmt->fetchAll();
-$total_pages = ceil($total / $per_page);
-$packages = $pdo->query("SELECT id, name FROM packages")->fetchAll(PDO::FETCH_KEY_PAIR);
-
-load_header('Bot Clients');
+load_header('Bot Users');
 ?>
 
 <?php if ($msg): ?>
-<div class="alert alert-<?= $msg_type ?> alert-dismissible fade show py-2 small fw-medium mb-3" role="alert">
-    <i class="fa-solid fa-circle-info me-1"></i> <?= htmlspecialchars($msg) ?>
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+<div class="alert alert-<?= $msg_type ?> mb-3">
+    <i class="fas fa-circle-info"></i> <?= h($msg) ?>
 </div>
 <?php endif; ?>
 
-<!-- Header Row -->
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="page-header">
     <div>
-        <h5 class="fw-bold mb-1">Bot Users (Clients)</h5>
-        <p class="text-muted small mb-0">Total <strong><?= number_format($total) ?></strong> bot users registered.</p>
+        <h1>Bot Users</h1>
+        <p><?= number_format($total) ?> total users registered via Bot</p>
     </div>
-    <form method="GET" class="d-flex gap-2" style="min-width: 300px;">
-        <input type="text" name="q" class="form-control form-control-sm" placeholder="Search Telegram ID or Name..." value="<?= htmlspecialchars($search) ?>">
-        <button type="submit" class="btn btn-sm btn-primary px-3"><i class="fa-solid fa-search"></i></button>
-        <?php if ($search): ?><a href="users.php" class="btn btn-sm btn-light border"><i class="fa-solid fa-xmark"></i></a><?php endif; ?>
+    <form method="GET" class="d-flex gap-2">
+        <input type="text" name="q" class="form-control" style="width:220px" placeholder="Search ID or name…" value="<?= h($search) ?>">
+        <button class="btn btn-secondary"><i class="fas fa-search"></i></button>
+        <?php if ($search): ?><a href="users.php" class="btn btn-secondary"><i class="fas fa-xmark"></i></a><?php endif; ?>
     </form>
 </div>
 
-<!-- Table -->
-<div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table mb-0 table-hover align-middle">
-                <thead class="bg-light">
-                    <tr>
-                        <th class="border-top-0 ps-4" style="width: 50px;">#</th>
-                        <th class="border-top-0">Telegram ID & Name</th>
-                        <th class="border-top-0">Coins</th>
-                        <th class="border-top-0">Active Package</th>
-                        <th class="border-top-0">Registered</th>
-                        <th class="border-top-0 text-end pe-4">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (count($users) > 0): ?>
-                        <?php foreach ($users as $i => $u): ?>
-                            <tr>
-                                <td class="ps-4 text-muted small"><?= $offset + $i + 1 ?></td>
-                                <td>
-                                    <div class="fw-bold text-dark"><?= htmlspecialchars($u['name']) ?></div>
-                                    <div class="text-muted small font-monospace"><?= htmlspecialchars($u['telegram_id']) ?></div>
-                                </td>
-                                <td>
-                                    <span class="badge bg-warning text-dark"><i class="fas fa-coins me-1"></i> <?= number_format($u['coins']) ?></span>
-                                </td>
-                                <td><span class="badge bg-success-subtle text-success border border-success-subtle px-2"><?= htmlspecialchars($u['pkg_name'] ?: 'None') ?></span></td>
-                                <td class="text-muted small"><?= date('d M Y, H:i', strtotime($u['created_at'])) ?></td>
-                                <td class="text-end pe-4">
-                                    <div class="d-flex justify-content-end gap-1">
-                                        <button class="btn btn-sm btn-primary" onclick="editUser(<?= $u['id'] ?>, <?= $u['coins'] ?>, <?= $u['package_id'] ?: 1 ?>)" title="Manage"><i class="fa-solid fa-pen"></i></button>
-                                        <form method="POST" class="d-inline" onsubmit="return confirm('Delete this bot user?')">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="id" value="<?= $u['id'] ?>">
-                                            <button class="btn btn-sm btn-danger" title="Delete"><i class="fa-solid fa-trash"></i></button>
-                                        </form>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    <?php else: ?>
-                        <tr><td colspan="6" class="text-center py-5 text-muted">No bot users found.</td></tr>
-                    <?php endif; ?>
-                </tbody>
-            </table>
-        </div>
+<div class="card">
+    <div class="table-responsive">
+        <table class="table">
+            <thead><tr>
+                <th>#</th>
+                <th>Telegram ID</th>
+                <th>Name</th>
+                <th>Coins</th>
+                <th>Package</th>
+                <th>Joined</th>
+                <th class="text-end">Actions</th>
+            </tr></thead>
+            <tbody>
+            <?php if ($users): foreach ($users as $i => $u): ?>
+            <tr>
+                <td style="color:var(--text-muted)"><?= $offset + $i + 1 ?></td>
+                <td><code class="mono"><?= h($u['telegram_id']) ?></code></td>
+                <td><?= h($u['name'] ?? '—') ?></td>
+                <td><span class="badge badge-warning"><i class="fas fa-coins me-1"></i><?= number_format((int)$u['coins']) ?></span></td>
+                <td><span class="badge badge-info"><?= h($u['pkg_name'] ?? 'None') ?></span></td>
+                <td style="color:var(--text-muted);font-size:.75rem"><?= date('d M Y', strtotime($u['created_at'])) ?></td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-secondary btn-icon"
+                        onclick='openEdit(<?= (int)$u["id"] ?>,<?= (int)$u["coins"] ?>,<?= (int)($u["package_id"] ?? 1) ?>)'
+                        title="Edit"><i class="fas fa-pen"></i></button>
+                    <form method="POST" class="d-inline" onsubmit="return confirm('Delete this user and all their sessions?')">
+                        <input type="hidden" name="action" value="delete">
+                        <input type="hidden" name="id" value="<?= (int)$u['id'] ?>">
+                        <button class="btn btn-sm btn-danger btn-icon" title="Delete"><i class="fas fa-trash"></i></button>
+                    </form>
+                </td>
+            </tr>
+            <?php endforeach; else: ?>
+            <tr><td colspan="7" class="text-center py-4" style="color:var(--text-muted)">No users found.</td></tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
     </div>
+    <?php if ($total_pages > 1): ?>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:.6rem 1rem;border-top:1px solid var(--border)">
+        <small style="color:var(--text-muted)">Page <?= $page ?> / <?= $total_pages ?></small>
+        <nav><ul class="pagination">
+            <?php for ($p = 1; $p <= $total_pages; $p++): ?>
+            <li class="page-item <?= $p == $page ? 'active' : '' ?>">
+                <a class="page-link" href="?page=<?= $p ?><?= $search ? '&q='.urlencode($search) : '' ?>"><?= $p ?></a>
+            </li>
+            <?php endfor; ?>
+        </ul></nav>
+    </div>
+    <?php endif; ?>
 </div>
 
-<!-- Modal Edit -->
-<div class="modal fade" id="modalEdit" tabindex="-1">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form method="POST">
-                <input type="hidden" name="action" value="update">
-                <input type="hidden" name="id" id="edit_id">
-                <div class="modal-header">
-                    <h5 class="modal-title">Manage User Data</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="mb-3">
-                        <label class="form-label">Coins Balance</label>
-                        <input type="number" name="coins" id="edit_coins" class="form-control" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Subscription Package</label>
-                        <select name="package_id" id="edit_package_id" class="form-select">
-                            <?php foreach($packages as $pid => $pname): ?>
-                            <option value="<?= $pid ?>"><?= htmlspecialchars($pname) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
-                </div>
-            </form>
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+<div class="modal-dialog modal-sm">
+<div class="modal-content">
+<form method="POST">
+    <input type="hidden" name="action" value="update">
+    <input type="hidden" name="id" id="e_id">
+    <div class="modal-header"><h6 class="modal-title">Edit User</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+        <div class="mb-3">
+            <label class="form-label">Coins</label>
+            <input type="number" name="coins" id="e_coins" class="form-control" min="0" required>
+        </div>
+        <div class="mb-0">
+            <label class="form-label">Package</label>
+            <select name="package_id" id="e_pkg" class="form-select">
+                <?php foreach ($packages as $p): ?>
+                <option value="<?= (int)$p['id'] ?>"><?= h($p['name']) ?></option>
+                <?php endforeach; ?>
+            </select>
         </div>
     </div>
-</div>
+    <div class="modal-footer">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save</button>
+    </div>
+</form>
+</div></div></div>
 
 <script>
-function editUser(id, coins, package_id) {
-    document.getElementById('edit_id').value = id;
-    document.getElementById('edit_coins').value = coins;
-    document.getElementById('edit_package_id').value = package_id;
-    new bootstrap.Modal(document.getElementById('modalEdit')).show();
+function openEdit(id, coins, pkg) {
+    document.getElementById('e_id').value    = id;
+    document.getElementById('e_coins').value = coins;
+    document.getElementById('e_pkg').value   = pkg;
+    new bootstrap.Modal(document.getElementById('editModal')).show();
 }
 </script>
-
 <?php load_footer(); ?>

