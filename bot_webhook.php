@@ -11,13 +11,13 @@ function getTempState(int|string $from_id): ?array {
     return file_exists($f) ? json_decode(file_get_contents($f), true) : null;
 }
 
-function setTempState(int|string $from_id, ?string $status, string $phone = ''): void {
+function setTempState(int|string $from_id, ?string $status, string $phone = '', int $msg_id = 0): void {
     if (!is_dir(__DIR__ . '/sessions')) mkdir(__DIR__ . '/sessions', 0777, true);
     $f = __DIR__ . "/sessions/state_{$from_id}.json";
     if ($status === null) {
         if (file_exists($f)) @unlink($f);
     } else {
-        file_put_contents($f, json_encode(['status' => $status, 'phone_number' => $phone]));
+        file_put_contents($f, json_encode(['status' => $status, 'phone_number' => $phone, 'msg_id' => $msg_id]));
     }
 }
 
@@ -221,16 +221,23 @@ if (isset($update['callback_query'])) {
         case 'resend_otp':
             $state = getTempState($from_id);
             if (!$state || $state['status'] !== 'wait_otp') {
-                answerCallback($cb_id, "Sesi tidak valid / Kadaluarsa.", true); break;
+                answerCallback($cb_id, "Sesi tidak valid / Sedang diproses.", true); break;
             }
             answerCallback($cb_id, "Meminta OTP ulang...");
+            
+            // Advance state to block duplicate webhooks from calling phoneLogin again!
+            setTempState($from_id, 'processing_resend', $state['phone_number'], $msg_id);
+            
             try {
                 $API = getMadeline($from_id, $state['phone_number']);
                 $API->phoneLogin($state['phone_number']);
+                // Revert state to purely wait_otp so user can type the code
+                setTempState($from_id, 'wait_otp', $state['phone_number'], $msg_id);
                 editMessage($chat_id, $msg_id, "📩 <b>OTP Dikirim Ulang!</b>\n\nCek aplikasi Telegrammu.\n\nKetik langsung kode OTP nya (bebas saja formatnya).", [
                     'inline_keyboard' => [[['text' => '🔙 Batal Login', 'callback_data' => "cancel_add"]]]
                 ]);
             } catch (\Exception $e) {
+                setTempState($from_id, 'wait_otp', $state['phone_number'], $msg_id); // Re-open
                 editMessage($chat_id, $msg_id, "❌ <b>Gagal Resend OTP</b>\n\n<code>{$e->getMessage()}</code>", [
                     'inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]
                 ]);
@@ -385,20 +392,24 @@ if (isset($update['message'])) {
 
     // STATE: PENDING (Waiting for Phone Number)
     if ($state['status'] === 'pending' && preg_match('/^\+?[0-9\s\-]+$/', $text)) {
+        // Delete user's message anti-spam
+        deleteMessage($chat_id, $msg['message_id']);
+        
         $phone = preg_replace('/[^0-9+]/', '', $text);
         if (str_starts_with($phone, '08')) $phone = '+62' . substr($phone, 1);
         elseif (str_starts_with($phone, '62') && !str_starts_with($phone, '+')) $phone = '+' . $phone;
 
         $msg_sent = sendMessage($chat_id, "🔄 <i>Menghubungi Telegram untuk nomor $phone...</i>");
+        $bot_msg_id = $msg_sent['result']['message_id'] ?? 0;
         
         // Anti-Duplicate Webhook: Advance state IMMEDIATELY before slow network call
-        setTempState($from_id, 'wait_otp', $phone);
+        setTempState($from_id, 'wait_otp', $phone, $bot_msg_id);
         
         try {
             $API = getMadeline($from_id, $phone);
             $API->phoneLogin($phone);
 
-            editMessage($chat_id, $msg_sent['result']['message_id'],
+            editMessage($chat_id, $bot_msg_id,
                 "📩 <b>Kode OTP Telah Dikirim!</b>\n\n".
                 "Telegram mengirimkan pesan OTP ke aplikasimu.\n\n".
                 "👉 <b>Ketik saja kode kamu di sini secara utuh juga bisa!</b> (Filter kami akan merapikannya otomatis)",
@@ -409,10 +420,10 @@ if (isset($update['message'])) {
             );
         } catch (\Exception $e) {
             // Revert state if failed
-            setTempState($from_id, 'pending', '');
-            editMessage($chat_id, $msg_sent['result']['message_id'], 
-                "❌ <b>Kesalahan:</b>\n<code>{$e->getMessage()}</code>",
-                ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]
+            setTempState($from_id, 'pending', '', $bot_msg_id);
+            editMessage($chat_id, $bot_msg_id, 
+                "❌ <b>Kesalahan:</b>\n<code>{$e->getMessage()}</code>\nCoba kirimkan kembali format nomor yang benar.",
+                ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]
             );
         }
         http_response_code(200); exit;
@@ -421,12 +432,22 @@ if (isset($update['message'])) {
     // STATE: WAIT_OTP
     if ($state['status'] === 'wait_otp') {
         $otp = preg_replace('/[^0-9]/', '', $text); // Extrak HANYA angka
+        
+        // Delete user's input line anti-spam
+        deleteMessage($chat_id, $msg['message_id']);
+        
+        $bot_msg_id = $state['msg_id'] ?? 0;
+        
         if (empty($otp)) {
-            sendMessage($chat_id, "❌ OTP harus mengandung angka. Coba lagi.");
+            if ($bot_msg_id) editMessage($chat_id, $bot_msg_id, "❌ OTP harus mengandung angka. Coba ketik lagi.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]);
             http_response_code(200); exit;
         }
         
-        $msg_sent = sendMessage($chat_id, "🔄 <i>Memverifikasi OTP: $otp...</i>");
+        // Lock state to processing
+        setTempState($from_id, 'processing_otp', $state['phone_number'], $bot_msg_id);
+        
+        if ($bot_msg_id) editMessage($chat_id, $bot_msg_id, "🔄 <i>Memverifikasi OTP: $otp...</i>");
+        else { $res = sendMessage($chat_id, "🔄 <i>Memverifikasi OTP: $otp...</i>"); $bot_msg_id = $res['result']['message_id']??0; }
         
         try {
             $API = getMadeline($from_id, $state['phone_number']);
@@ -435,20 +456,29 @@ if (isset($update['message'])) {
             $pdo->prepare("INSERT INTO user_sessions (telegram_id, phone_number, status) VALUES (?, ?, 'active')")->execute([$from_id, $state['phone_number']]);
             setTempState($from_id, null); // remove from temp state
             
-            editMessage($chat_id, $msg_sent['result']['message_id'], "✅ <b>Berhasil!</b> Akun terhubung.", ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]);
+            editMessage($chat_id, $bot_msg_id, "✅ <b>Berhasil!</b> Akun terhubung.", ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]);
         } catch (\danog\MadelineProto\Exception\Require2FAException $e) {
             // Needs 2FA, advance state
-            setTempState($from_id, 'wait_password', $state['phone_number']);
-            editMessage($chat_id, $msg_sent['result']['message_id'], "🔐 <b>Akun di-2FA.</b>\nKirimkan password kamu:");
+            setTempState($from_id, 'wait_password', $state['phone_number'], $bot_msg_id);
+            editMessage($chat_id, $bot_msg_id, "🔐 <b>Akun di-2FA.</b>\nKirimkan password kamu:", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]);
         } catch (\Exception $e) {
-            editMessage($chat_id, $msg_sent['result']['message_id'], "❌ <b>Gagal:</b> {$e->getMessage()}\nKirim OTP dengan benar. Jika ingin menyudahi klik Batal.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]);
+            setTempState($from_id, 'wait_otp', $state['phone_number'], $bot_msg_id); // Revert lock
+            editMessage($chat_id, $bot_msg_id, "❌ <b>Gagal:</b> {$e->getMessage()}\nKirim OTP dengan benar. Jika ingin menyudahi klik Batal.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]);
         }
         http_response_code(200); exit;
     }
 
     // STATE: WAIT_PASSWORD
     if ($state['status'] === 'wait_password') {
-        $msg_sent = sendMessage($chat_id, "🔄 <i>Memverifikasi Password...</i>");
+        // Delete user's message anti-spam
+        deleteMessage($chat_id, $msg['message_id']);
+        
+        $bot_msg_id = $state['msg_id'] ?? 0;
+        // Lock state to processing
+        setTempState($from_id, 'processing_pwd', $state['phone_number'], $bot_msg_id);
+        
+        if ($bot_msg_id) editMessage($chat_id, $bot_msg_id, "🔄 <i>Memverifikasi Password...</i>");
+        
         try {
             $API = getMadeline($from_id, $state['phone_number']);
             $API->complete2faLogin(trim($text));
@@ -456,9 +486,10 @@ if (isset($update['message'])) {
             $pdo->prepare("INSERT INTO user_sessions (telegram_id, phone_number, status) VALUES (?, ?, 'active')")->execute([$from_id, $state['phone_number']]);
             setTempState($from_id, null);
             
-            editMessage($chat_id, $msg_sent['result']['message_id'], "✅ <b>Login Tuntas!</b> Akun aktif.", ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]);
+            editMessage($chat_id, $bot_msg_id, "✅ <b>Login Tuntas!</b> Akun aktif.", ['inline_keyboard' => [[['text' => '🔙 Dasbor', 'callback_data' => 'dashboard']]]]);
         } catch (\Exception $e) {
-            editMessage($chat_id, $msg_sent['result']['message_id'], "❌ <b>Password Salah / Gagal:</b> {$e->getMessage()}\nKirim ulang passwordnya.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => "cancel_add"]]]]);
+            setTempState($from_id, 'wait_password', $state['phone_number'], $bot_msg_id); // Revert lock
+            editMessage($chat_id, $bot_msg_id, "❌ <b>Password Salah / Gagal:</b> {$e->getMessage()}\nKirim ulang passwordnya.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => "cancel_add"]]]]);
         }
         http_response_code(200); exit;
     }
