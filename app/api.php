@@ -188,6 +188,7 @@ switch ($action) {
                 file_put_contents(__DIR__ . '/../logs/system.log', $err_msg, FILE_APPEND);
                 
                 $pdo->prepare("UPDATE contacts SET status = 'invalid' WHERE id = ?")->execute([$contact['id']]);
+                $pdo->prepare("UPDATE broadcasts SET failed_count = failed_count + 1 WHERE id = ?")->execute([$bid]);
             }
             sleep(1); // Jeda aman
         }

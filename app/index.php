@@ -16,6 +16,8 @@
             --button-text-color: var(--tg-theme-button-text-color, #ffffff);
             --secondary-bg-color: var(--tg-theme-secondary-bg-color, #111825);
             --border-color: #1a2233;
+            --ok: #67c23a;
+            --err: #f56c6c;
         }
 
         body {
@@ -245,7 +247,8 @@
                         </div>
                         <div style="font-size:12px;color:var(--hint-color); margin-bottom:10px;">
                             Pesan: ${b.message.substring(0, 30)}...<br>
-                            Terkirim: <b>${b.sent_count} / ${b.target_count}</b>
+                            Terkirim: <b style="color:var(--ok)">${b.sent_count} / ${b.target_count}</b>
+                            ${b.failed_count > 0 ? `<br><span style="color:var(--err)">Gagal/Skip: <b>${b.failed_count}</b> kontak</span>` : ''}
                         </div>
                         <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
                         <div style="display:flex; gap:8px; margin-top:12px; justify-content:flex-end;">
