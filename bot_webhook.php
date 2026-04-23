@@ -247,30 +247,18 @@ if (isset($update['callback_query'])) {
         case 'broadcast_menu':
             answerCallback($cb_id);
             setTempState($from_id, null);
-            $sess_stmt = $pdo->prepare("SELECT b.*, s.phone_number FROM broadcasts b JOIN user_sessions s ON b.session_id = s.id WHERE s.telegram_id = ? ORDER BY b.id DESC LIMIT 5");
-            $sess_stmt->execute([$from_id]);
-            $bcasts = $sess_stmt->fetchAll();
-
-            $msg = "📢 <b>Broadcast Terakhir</b>\n\n";
-            $kb = [[['text' => '➕ Buat Broadcast Baru (Di Web)', 'url' => 'https://protel.nixstore.web.id/console']]];
             
-            if (empty($bcasts)) {
-                $msg .= "<i>Belum ada task broadcast. Buat task di web Admin.</i>";
-            } else {
-                foreach($bcasts as $b) {
-                    $pct = $b['target_count'] > 0 ? floor(($b['sent_count']/$b['target_count'])*100) : 0;
-                    $msg .= "ID: {$b['id']} | <b>{$b['status']}</b> | Sent: {$b['sent_count']}\n";
-                    if ($b['status'] === 'draft' || $b['status'] === 'paused') {
-                        $kb[] = [['text' => "▶️ Start BC #{$b['id']}", 'callback_data' => "bc_start:{$b['id']}"]];
-                    } elseif ($b['status'] === 'process') {
-                        $kb[] = [
-                            ['text' => "⏸ Pause BC #{$b['id']}", 'callback_data' => "bc_pause:{$b['id']}"],
-                            ['text' => "⏹ Stop BC #{$b['id']}", 'callback_data' => "bc_stop:{$b['id']}"]
-                        ];
-                    }
-                }
-            }
-            $kb[] = [['text' => '🔙 Kembali', 'callback_data' => 'dashboard']];
+            $msg = "📢 <b>Broadcast Command Center</b>\n\nUntuk memulai kampanye pesan masal dan mengontrol task Anda secara Real-Time, silakan buka Mini-App kami.";
+            
+            // Build the URL to the MiniApp dynamically (since the bot could run anywhere)
+            $host = str_replace(['http://', 'https://'], '', BASE_URL);
+            $app_url = BASE_URL . "/app/index.php";
+
+            // WebApp Inline Button
+            $kb = [
+                [['text' => '🚀 Buka Mini App Broadcast', 'web_app' => ['url' => $app_url]]],
+                [['text' => '🔙 Kembali', 'callback_data' => 'dashboard']]
+            ];
             editMessage($chat_id, $msg_id, $msg, ['inline_keyboard' => $kb]);
             break;
             
