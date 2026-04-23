@@ -338,6 +338,9 @@ if (isset($update['message'])) {
 
     // Import contact via Contact Share (Attachment)
     if (isset($msg['contact'])) {
+        // Hapus balon kontak besar yang dikirim user agar chat tidak nyampah
+        deleteMessage($chat_id, $msg['message_id']);
+
         $phone = preg_replace('/[^0-9+]/', '', $msg['contact']['phone_number']);
         $name = trim(($msg['contact']['first_name'] ?? '') . ' ' . ($msg['contact']['last_name'] ?? ''));
         if (empty($name)) $name = 'Contact';
@@ -350,7 +353,30 @@ if (isset($update['message'])) {
             if ($act_s) {
                 try {
                     $pdo->prepare("INSERT IGNORE INTO contacts (session_id, phone_or_username, type, name) VALUES (?, ?, 'phone', ?)")->execute([$act_s, $phone, $name]);
-                    sendMessage($chat_id, "✅ <b>Kontak Tersimpan!</b>\nBerhasil menambahkan <code>$phone</code> ($name) ke dalam daftar kontakmu.", ['inline_keyboard' => [[['text' => '🔙 Menu Kontak', 'callback_data' => 'contacts_menu']]]]);
+                    
+                    // Grouping Notifikasi: edit message lama jika diimpor dalam waktu berdekatan
+                    $sfile = __DIR__ . "/sessions/import_{$from_id}.json";
+                    $istate = file_exists($sfile) ? json_decode(file_get_contents($sfile), true) : ['msg_id' => 0, 'time' => 0];
+                    $now = time();
+                    
+                    // Hitung jumlah kontak yang baru saja masuk dalam 1 menit terakhir
+                    $cst = $pdo->prepare("SELECT COUNT(*) FROM contacts WHERE session_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
+                    $cst->execute([$act_s]);
+                    $recent_count = $cst->fetchColumn();
+
+                    $msg_text = "✅ <b>$recent_count Kontak Tersimpan!</b>\nBerhasil menambahkan rentetan kontak tersebut ke dalam daftarmu.";
+                    $kb = ['inline_keyboard' => [[['text' => '🔙 Menu Kontak', 'callback_data' => 'contacts_menu']]]];
+
+                    if ($now - $istate['time'] < 30 && $istate['msg_id'] > 0) {
+                        // Coba update pesan sebelumnya (bisa catch error jika teks persis sama)
+                        try { editMessage($chat_id, $istate['msg_id'], $msg_text, $kb); } catch(\Exception $e) {}
+                        $istate['time'] = $now;
+                        file_put_contents($sfile, json_encode($istate));
+                    } else {
+                        // Kirim pesan balon notifikasi baru
+                        $res = sendMessage($chat_id, $msg_text, $kb);
+                        file_put_contents($sfile, json_encode(['msg_id' => $res['result']['message_id'] ?? 0, 'time' => $now]));
+                    }
                 } catch (\Exception $e) {
                     sendMessage($chat_id, "❌ <b>Gagal Menyimpan!</b>\n". $e->getMessage());
                 }
