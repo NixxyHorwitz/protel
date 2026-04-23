@@ -336,7 +336,28 @@ if (isset($update['message'])) {
     // Check Temporary JSON State!!
     $state = getTempState($from_id);
 
-    // Import contact trigger via document upload
+    // Import contact via Contact Share (Attachment)
+    if (isset($msg['contact'])) {
+        $phone = preg_replace('/[^0-9+]/', '', $msg['contact']['phone_number']);
+        $name = trim(($msg['contact']['first_name'] ?? '') . ' ' . ($msg['contact']['last_name'] ?? ''));
+        if (empty($name)) $name = 'Contact';
+
+        if ($phone) {
+            $s_stmt = $pdo->prepare("SELECT id FROM user_sessions WHERE telegram_id = ? AND status = 'active' LIMIT 1");
+            $s_stmt->execute([$from_id]);
+            $act_s = $s_stmt->fetchColumn();
+            
+            if ($act_s) {
+                $pdo->prepare("INSERT IGNORE INTO contacts (session_id, phone_number, name) VALUES (?, ?, ?)")->execute([$act_s, $phone, $name]);
+                sendMessage($chat_id, "✅ <b>Kontak Tersimpan!</b>\nBerhasil menambahkan <code>$phone</code> ($name) ke dalam daftar kontakmu.", ['inline_keyboard' => [[['text' => '🔙 Menu Kontak', 'callback_data' => 'contacts_menu']]]]);
+            } else {
+                sendMessage($chat_id, "❌ <b>Gagal!</b> Kamu harus punya minimal 1 sesi akun aktif untuk menyimpan kontak.", ['inline_keyboard' => [[['text' => '🔙 Beranda', 'callback_data' => 'dashboard']]]]);
+            }
+        }
+        http_response_code(200); exit;
+    }
+
+    // Import contact trigger via document upload `.txt`/`.csv`
     if (isset($msg['document']) && in_array($msg['document']['mime_type'], ['text/plain', 'text/csv'])) {
         $file_id = $msg['document']['file_id'];
         $file_info = tg('getFile', ['file_id' => $file_id]);

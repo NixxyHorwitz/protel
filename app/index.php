@@ -286,9 +286,36 @@
             if(yes) {
                 apiCall('update_status', { id: id, status: newStatus }).then(res => {
                     if(res.error) tg.showAlert("Gagal: "+res.error);
-                    else loadDashboard();
+                    else {
+                        loadDashboard();
+                        if(newStatus === 'process') triggerWorker();
+                    }
                 });
             }
+        });
+    }
+
+    let isWorking = false;
+    function triggerWorker() {
+        if(isWorking) return;
+        isWorking = true;
+        
+        apiCall('execute_batch').then(res => {
+            isWorking = false;
+            if(res.status === 'batch_processed') {
+                loadDashboard();
+                triggerWorker(); // Loop immediately for the next batch!
+            } else if(res.status === 'completed') {
+                loadDashboard();
+                tg.showPopup({title: 'Selesai', message: 'Task Broadcast telah tuntas 100%!', buttons: [{type: 'ok'}]});
+            } else if(res.status === 'error') {
+                tg.showAlert("Worker Error: " + res.message);
+                loadDashboard();
+            } else {
+                // Idle or no tasks. Do nothing.
+            }
+        }).catch(e => {
+            isWorking = false;
         });
     }
 
@@ -296,12 +323,17 @@
     setInterval(() => {
         if (document.getElementById('view-tasks').style.display !== 'none') {
             loadDashboard();
+            triggerWorker(); // attempt to start worker if there are pending tasks
         }
     }, 5000);
 
     // Initial Load
-    if (initData) loadDashboard();
-    else document.getElementById('taskList').innerHTML = `<div class="card" style="text-align:center;color:red;">Error: Harus dibuka dari Telegram App</div>`;
+    if (initData) {
+        loadDashboard();
+        setTimeout(triggerWorker, 2000); // start worker loop shortly after load
+    } else {
+        document.getElementById('taskList').innerHTML = `<div class="card" style="text-align:center;color:red;">Error: Harus dibuka dari Telegram App</div>`;
+    }
 </script>
 </body>
 </html>

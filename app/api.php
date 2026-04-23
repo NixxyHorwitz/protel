@@ -111,6 +111,87 @@ switch ($action) {
         echo json_encode(['status' => 'ok']);
         break;
 
+    case 'execute_batch':
+        // Ini adalah Mini-App Worker (Frontend Triggered Worker)
+        // Mengeksekusi hingga 3 kontak dalam 1 siklus AJAX untuk menghindari timeout
+        set_time_limit(60);
+
+        $b_stmt = $pdo->prepare("SELECT b.*, s.phone_number, s.telegram_id FROM broadcasts b JOIN user_sessions s ON b.session_id = s.id WHERE b.status = 'process' AND s.telegram_id = ? ORDER BY b.id ASC LIMIT 1");
+        $b_stmt->execute([$telegram_id]);
+        $task = $b_stmt->fetch();
+
+        if (!$task) {
+            echo json_encode(['status' => 'idle', 'message' => 'No active tasks']); exit;
+        }
+
+        $session_id = $task['session_id'];
+        $bid = $task['id'];
+
+        $c_stmt = $pdo->prepare("SELECT id, phone_or_username, type FROM contacts WHERE session_id = ? AND status = 'valid' LIMIT 3");
+        $c_stmt->execute([$session_id]);
+        $contacts = $c_stmt->fetchAll();
+
+        if (empty($contacts)) {
+            $pdo->prepare("UPDATE broadcasts SET status = 'completed' WHERE id = ?")->execute([$bid]);
+            $pdo->prepare("UPDATE contacts SET status = 'valid' WHERE session_id = ? AND status = 'sent'")->execute([$session_id]);
+            echo json_encode(['status' => 'completed', 'task_id' => $bid]); exit;
+        }
+
+        // Init MadelineProto
+        if (file_exists(__DIR__ . '/../vendor/autoload.php')) require_once __DIR__ . '/../vendor/autoload.php';
+        
+        $settings = new \danog\MadelineProto\Settings();
+        $settings->getLogger()->setLevel(\danog\MadelineProto\Logger::FATAL_ERROR);
+        $settings->getPeer()->setCacheAllPeersOnStartup(false);
+        $settings->getAppInfo()->setApiId(2040)->setApiHash('b18441a1ff607e10a989891a5462e627');
+
+        $safe_phone = preg_replace('/[^0-9]/', '', $task['phone_number']);
+        $sessionPath = __DIR__ . "/../sessions/session_{$telegram_id}_{$safe_phone}.madeline";
+
+        if (!file_exists($sessionPath)) {
+            $pdo->prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?")->execute([$bid]);
+            echo json_encode(['status' => 'error', 'message' => 'Sesi tidak ditemukan']); exit;
+        }
+
+        try {
+            $API = new \danog\MadelineProto\API($sessionPath, $settings);
+        } catch (\Exception $e) {
+            $pdo->prepare("UPDATE broadcasts SET status = 'failed' WHERE id = ?")->execute([$bid]);
+            echo json_encode(['status' => 'error', 'message' => 'Gagal meload API']); exit;
+        }
+
+        $sent_this_batch = 0;
+        foreach ($contacts as $contact) {
+            // Check if user paused mid-batch
+            $ck = $pdo->prepare("SELECT status FROM broadcasts WHERE id = ?"); $ck->execute([$bid]);
+            if ($ck->fetchColumn() !== 'process') {
+                 break;
+            }
+
+            $target = $contact['phone_or_username'];
+            if ($contact['type'] === 'phone' && is_numeric($target) && !str_starts_with($target, '+')) {
+                $target = '+' . $target; 
+            }
+
+            try {
+                $API->messages->sendMessage([
+                    'peer' => $target, 
+                    'message' => $task['message'],
+                    'parse_mode' => 'HTML'
+                ]);
+                $pdo->prepare("UPDATE contacts SET status = 'sent' WHERE id = ?")->execute([$contact['id']]);
+                $pdo->prepare("UPDATE broadcasts SET sent_count = sent_count + 1 WHERE id = ?")->execute([$bid]);
+                $sent_this_batch++;
+            } catch (\Exception $e) {
+                // Invalid num / blocked
+                $pdo->prepare("UPDATE contacts SET status = 'invalid' WHERE id = ?")->execute([$contact['id']]);
+            }
+            sleep(1); // Jeda aman
+        }
+
+        echo json_encode(['status' => 'batch_processed', 'sent' => $sent_this_batch, 'task_id' => $bid]);
+        break;
+
     default:
         echo json_encode(['error' => 'Unknown action']);
 }
