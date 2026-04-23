@@ -183,7 +183,10 @@ switch ($action) {
                 $pdo->prepare("UPDATE broadcasts SET sent_count = sent_count + 1 WHERE id = ?")->execute([$bid]);
                 $sent_this_batch++;
             } catch (\Exception $e) {
-                // Invalid num / blocked
+                // Invalid num / blocked / peer not found
+                $err_msg = "[BatchWorker] Failed sending to {$target}: " . $e->getMessage() . "\n";
+                file_put_contents(__DIR__ . '/../logs/system.log', $err_msg, FILE_APPEND);
+                
                 $pdo->prepare("UPDATE contacts SET status = 'invalid' WHERE id = ?")->execute([$contact['id']]);
             }
             sleep(1); // Jeda aman
