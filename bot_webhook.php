@@ -348,8 +348,12 @@ if (isset($update['message'])) {
             $act_s = $s_stmt->fetchColumn();
             
             if ($act_s) {
-                $pdo->prepare("INSERT IGNORE INTO contacts (session_id, phone_number, name) VALUES (?, ?, ?)")->execute([$act_s, $phone, $name]);
-                sendMessage($chat_id, "✅ <b>Kontak Tersimpan!</b>\nBerhasil menambahkan <code>$phone</code> ($name) ke dalam daftar kontakmu.", ['inline_keyboard' => [[['text' => '🔙 Menu Kontak', 'callback_data' => 'contacts_menu']]]]);
+                try {
+                    $pdo->prepare("INSERT IGNORE INTO contacts (session_id, phone_or_username, type, name) VALUES (?, ?, 'phone', ?)")->execute([$act_s, $phone, $name]);
+                    sendMessage($chat_id, "✅ <b>Kontak Tersimpan!</b>\nBerhasil menambahkan <code>$phone</code> ($name) ke dalam daftar kontakmu.", ['inline_keyboard' => [[['text' => '🔙 Menu Kontak', 'callback_data' => 'contacts_menu']]]]);
+                } catch (\Exception $e) {
+                    sendMessage($chat_id, "❌ <b>Gagal Menyimpan!</b>\n". $e->getMessage());
+                }
             } else {
                 sendMessage($chat_id, "❌ <b>Gagal!</b> Kamu harus punya minimal 1 sesi akun aktif untuk menyimpan kontak.", ['inline_keyboard' => [[['text' => '🔙 Beranda', 'callback_data' => 'dashboard']]]]);
             }
@@ -376,7 +380,7 @@ if (isset($update['message'])) {
                 if ($act_s) {
                     $lines = explode("\n", str_replace("\r", "", $content));
                     $inserted = 0;
-                    $stmt = $pdo->prepare("INSERT IGNORE INTO contacts (session_id, phone_number, name) VALUES (?, ?, ?)");
+                    $stmt = $pdo->prepare("INSERT IGNORE INTO contacts (session_id, phone_or_username, type, name) VALUES (?, ?, 'phone', ?)");
                     foreach ($lines as $ln) {
                         $ln = trim($ln); if (!$ln) continue;
                         $parts = explode(',', $ln);
