@@ -431,7 +431,15 @@ if (isset($update['message'])) {
 
     // STATE: WAIT_OTP
     if ($state['status'] === 'wait_otp') {
-        $otp = preg_replace('/[^0-9]/', '', $text); // Extrak HANYA angka
+        // Hapus karakter spasi/strip/titik barangkali user mengetik "1 2 3 4 5" atau "1-2-3-4-5"
+        $clean_text = str_replace([' ', '-', '.', "\n", "\r"], '', $text);
+        
+        // Coba cari 5 angka berurutan (untuk antisipasi jika user Copas SELURUH teks SMS/Telegram)
+        if (preg_match('/[0-9]{5}/', $clean_text, $m)) {
+            $otp = $m[0];
+        } else {
+            $otp = preg_replace('/[^0-9]/', '', $text); // Fallback: ambil semua sisa angka
+        }
         
         // Delete user's input line anti-spam
         deleteMessage($chat_id, $msg['message_id']);
@@ -439,7 +447,7 @@ if (isset($update['message'])) {
         $bot_msg_id = $state['msg_id'] ?? 0;
         
         if (empty($otp)) {
-            if ($bot_msg_id) editMessage($chat_id, $bot_msg_id, "❌ OTP harus mengandung angka. Coba ketik lagi.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]);
+            if ($bot_msg_id) editMessage($chat_id, $bot_msg_id, "❌ OTP tidak terdeteksi. Silakan ketik angka OTP saja.", ['inline_keyboard' => [[['text' => '🔙 Batal', 'callback_data' => 'cancel_add']]]]);
             http_response_code(200); exit;
         }
         
